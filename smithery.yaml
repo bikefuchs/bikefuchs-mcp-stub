@@ -2,7 +2,7 @@ name: bikefuchs-stub
 description: "Bikefuchs MCP placeholder — real bike-shop comparison tools launching Q3 2026."
 startCommand:
   type: http
-  url: https://mcp.bikefuchs.de/mcp
+  url: https://mcp.bikefuchs.com/mcp
   configSchema:
     type: object
     properties: {}

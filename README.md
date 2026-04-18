@@ -24,7 +24,7 @@ The canonical entry point is the Vercel deployment. Use `mcp-remote` to proxy it
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://mcp.bikefuchs.de/mcp"
+        "https://mcp.bikefuchs.com/mcp"
       ]
     }
   }
@@ -50,14 +50,14 @@ Follow this order exactly. Smithery verifies the live URL during publishing — 
    Trigger the first deploy. Confirm the build succeeds and the default `.vercel.app` URL returns a valid MCP response.
 
 4. **Add custom domain in Vercel**
-   In the Vercel project → Settings → Domains, add `mcp.bikefuchs.de`.
+   In the Vercel project → Settings → Domains, add `mcp.bikefuchs.com`.
 
 5. **Configure DNS in Strato**
-   Under bikefuchs.de, create a subdomain `mcp` and set a CNAME record pointing to the value Vercel provides (typically `cname.vercel-dns.com`). Allow up to 30 minutes for propagation.
+   Under bikefuchs.com, create a subdomain `mcp` and set a CNAME record pointing to the value Vercel provides (typically `cname.vercel-dns.com`). Allow up to 30 minutes for propagation.
 
 6. **Verify the live endpoint**
    ```
-   curl -i https://mcp.bikefuchs.de/mcp
+   curl -i https://mcp.bikefuchs.com/mcp
    ```
    Expected: HTTP 2xx or 4xx with a valid MCP response body — not a 404 or connection refused.
 
