@@ -3,7 +3,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://bikefuchs.com";
+// Use www subdomain directly — bikefuchs.com (apex) 307-redirects to www
+const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
 const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
   "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com) — Bike price comparison for DE & AT*";
@@ -12,10 +13,23 @@ async function apiFetch(path: string, options?: RequestInit): Promise<Response> 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    return await fetch(`${API_BASE}${path}`, { ...options, signal: controller.signal });
+    const headers = new Headers(options?.headers);
+    headers.set("Accept", "application/json");
+    return await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, options);
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const body = await res.text();
+    console.error(`[MCP] Non-JSON response from ${path}: ${contentType} — ${body.substring(0, 200)}`);
+    throw new Error(`API returned unexpected content (${contentType || "unknown"}). The bikefuchs.com API may be temporarily unavailable.`);
+  }
+  return res.json() as Promise<T>;
 }
 
 function mcpText(text: string) {
@@ -44,9 +58,7 @@ function createServer() {
           in_stock: String(in_stock),
           max_results: String(max_results),
         });
-        const res = await apiFetch(`/api/products/search?${params}`);
-        const data = await res.json() as { results?: ProductSearchResult[]; total?: number; error?: string };
-        if (!res.ok) return mcpText(`Error: ${data.error ?? res.statusText}`);
+        const data = await apiJson<{ results?: ProductSearchResult[]; total?: number; error?: string }>(`/api/products/search?${params}`);
 
         if (!data.results || data.results.length === 0) {
           return mcpText(`No products found for "${q}" in ${country}.${FOOTER}`);
@@ -78,9 +90,7 @@ function createServer() {
     async ({ ean, country }) => {
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
-        const res = await apiFetch(`/api/products/${ean}?country=${country}`);
-        const data = await res.json() as { ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string };
-        if (!res.ok) return mcpText(`Error: ${data.error ?? res.statusText}`);
+        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
 
         if (!data.results || data.results.length === 0) {
           return mcpText(
@@ -122,15 +132,11 @@ function createServer() {
     async ({ urls, country }) => {
       console.info(`[MCP] optimize_cart: ${urls.length} URL(s) country=${country}`);
       try {
-        const res = await apiFetch("/api/cart/optimize-from-urls", {
+        const data = await apiJson<OptimizeResult>("/api/cart/optimize-from-urls", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ urls, country }),
         });
-        const data = await res.json() as OptimizeResult;
-        if (!res.ok && !data.products_resolved?.length) {
-          return mcpText(`Error: ${data.error ?? res.statusText}`);
-        }
 
         let md = `## Cart Optimization (${country})\n\n`;
 
@@ -186,9 +192,7 @@ function createServer() {
     async ({ country }) => {
       console.info(`[MCP] get_shop_info country=${country ?? "all"}`);
       try {
-        const res = await apiFetch("/api/shops/shipping");
-        const data = await res.json() as { shops?: Record<string, Record<string, ShippingCountryInfo>>; error?: string };
-        if (!res.ok) return mcpText(`Error: ${data.error ?? res.statusText}`);
+        const data = await apiJson<{ shops?: Record<string, Record<string, ShippingCountryInfo>>; error?: string }>("/api/shops/shipping");
 
         const shops = data.shops ?? {};
         let md = `## Bikefuchs — Shop Shipping Overview\n\n`;
@@ -229,9 +233,7 @@ function createServer() {
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
       try {
         const params = new URLSearchParams({ shop, country, cart_value: String(cart_value) });
-        const res = await apiFetch(`/api/shops/shipping?${params}`);
-        const data = await res.json() as ShippingResult;
-        if (!res.ok) return mcpText(`Error: ${data.error ?? res.statusText}`);
+        const data = await apiJson<ShippingResult>(`/api/shops/shipping?${params}`);
 
         const total = (data.cart_value + data.shipping_cost).toFixed(2);
         let md = `## Shipping: ${data.shop} (${country})\n\n`;
@@ -268,9 +270,7 @@ function createServer() {
     async ({ ean, country }) => {
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
-        const res = await apiFetch(`/api/products/${ean}?country=${country}`);
-        const data = await res.json() as { ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string };
-        if (!res.ok) return mcpText(`Error: ${data.error ?? res.statusText}`);
+        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
 
         if (!data.results || data.results.length === 0) {
           return mcpText(
