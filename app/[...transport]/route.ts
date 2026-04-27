@@ -44,13 +44,16 @@ function createServer() {
     "search_product",
     "Search for bike products by keyword across 5 German/Austrian bike shops (BOC24, Fahrrad24/Velondo, Rose Bikes, fahrrad-teile.shop, Bike Mailorder). Returns products sorted by price.",
     {
-      q: z.string().min(2).describe("Search keyword, min 2 chars (e.g. 'shimano deore xt pedals')"),
+      q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
       in_stock: z.boolean().optional().default(true).describe("Only return in-stock products (default true)"),
       max_results: z.number().int().min(1).max(20).optional().default(10).describe("Max results (1–20, default 10)"),
+      shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo"]).optional().describe("Restrict results to a single shop"),
+      max_price: z.number().positive().optional().describe("Upper price bound in EUR (inclusive)"),
+      category: z.string().optional().describe("Filter by merchant category (partial match, e.g. 'Fahrräder' or 'Bremsen')"),
     },
-    async ({ q, country, in_stock, max_results }) => {
-      console.info(`[MCP] search_product: q="${q}" country=${country} in_stock=${in_stock} max=${max_results}`);
+    async ({ q, country, in_stock, max_results, shop, max_price, category }) => {
+      console.info(`[MCP] search_product: q="${q}" country=${country} in_stock=${in_stock} max=${max_results}${shop ? ` shop=${shop}` : ''}${max_price !== undefined ? ` max_price=${max_price}` : ''}${category ? ` category=${category}` : ''}`);
       try {
         const params = new URLSearchParams({
           q,
@@ -58,6 +61,9 @@ function createServer() {
           in_stock: String(in_stock),
           max_results: String(max_results),
         });
+        if (shop) params.set('shop', shop);
+        if (max_price !== undefined) params.set('max_price', String(max_price));
+        if (category) params.set('category', category);
         const data = await apiJson<{ results?: ProductSearchResult[]; total?: number; error?: string }>(`/api/products/search?${params}`);
 
         if (!data.results || data.results.length === 0) {
