@@ -42,13 +42,13 @@ function createServer() {
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.tool(
     "search_product",
-    "Search for bike products by keyword across 5 German/Austrian bike shops (BOC24, Fahrrad24/Velondo, Rose Bikes, fahrrad-teile.shop, Bike Mailorder). Returns products sorted by price.",
+    "Search for bike products by keyword across 6 German/Austrian bike shops (BOC24, Fahrrad24/Velondo, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad). Returns products sorted by price.",
     {
       q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
       in_stock: z.boolean().optional().default(true).describe("Only return in-stock products (default true)"),
       max_results: z.number().int().min(1).max(20).optional().default(10).describe("Max results (1–20, default 10)"),
-      shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo"]).optional().describe("Restrict results to a single shop"),
+      shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo", "maciag"]).optional().describe("Restrict results to a single shop"),
       max_price: z.number().positive().optional().describe("Upper price bound in EUR (inclusive)"),
       category: z.string().optional().describe("Filter by merchant category (partial match, e.g. 'Fahrräder' or 'Bremsen')"),
     },
