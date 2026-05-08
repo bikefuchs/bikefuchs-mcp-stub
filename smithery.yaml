@@ -1,5 +1,5 @@
 name: bikefuchs-stub
-description: "Bikefuchs MCP placeholder — real bike-shop comparison tools launching Q3 2026."
+description: "Bikefuchs — Bicycle parts price comparison across 10 German and Austrian bike shops. Search ~120,000 products, compare prices, and optimize shopping carts to minimize total cost including shipping. Covers MTB, road, gravel, e-bike parts from Shimano, SRAM, Schwalbe, Magura, and more."
 startCommand:
   type: http
   url: https://mcp.bikefuchs.com/mcp

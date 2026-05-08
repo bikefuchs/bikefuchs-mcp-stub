@@ -42,7 +42,7 @@ function createServer() {
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.tool(
     "search_product",
-    "Search for bike products by keyword across 6 German/Austrian bike shops (BOC24, Fahrrad24/Velondo, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad). Returns products sorted by price.",
+    "Search for bicycle parts, components, accessories, and cycling clothing across 6 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich.",
     {
       q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -88,7 +88,7 @@ function createServer() {
   // ── Tool 2: get_best_price ─────────────────────────────────────────────────
   server.tool(
     "get_best_price",
-    "Look up a product by EAN barcode and find the best price across all feed shops (BOC24, Fahrrad24/Velondo, Rose Bikes, fahrrad-teile.shop, Bike Mailorder). Returns all shops that carry this product, sorted by price.",
+    "Look up a product by EAN barcode and find the best price across all feed shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to find the single cheapest price across all available shops.",
     {
       ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -124,14 +124,14 @@ function createServer() {
   // ── Tool 3: optimize_cart ──────────────────────────────────────────────────
   server.tool(
     "optimize_cart",
-    "Optimize a shopping cart of bike products by finding the cheapest shop combination including shipping costs. Provide 1–20 product page URLs from supported shops. Returns the optimal shop split with total cost including shipping.",
+    "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide product URLs from supported shops and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT). Supported input shops: BIKE24 (bike24.de, bike24.at), BOC24 (boc24.de), Fahrrad24 (fahrrad24.de, velondo.at), Rose Bikes (rosebikes.de, rosebikes.at), fahrrad-teile.shop, Bike Mailorder (bike-mailorder.com, bike-mailorder.at), Maciag Offroad (maciag.de), Bike-Discount (bike-discount.de), bike-components (bike-components.de). Use this when a user has multiple bike parts to buy and wants to know the cheapest way to split their order across shops. Warenkorb optimieren Versandkosten.",
     {
       urls: z
         .array(z.string().url())
         .min(1)
         .max(20)
         .describe(
-          "Array of product page URLs (1–20). Supported shops: boc24.de, fahrrad24.de, velondo.at, rosebikes.de, rosebikes.at, fahrrad-teile.shop, bike-mailorder.com"
+          "Product page URLs from supported shops. Supported: bike24.de, bike24.at, boc24.de, fahrrad24.de, velondo.at, rosebikes.de, rosebikes.at, fahrrad-teile.shop, bike-mailorder.com, bike-mailorder.at, maciag.de, bike-discount.de, bike-components.de"
         ),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing and shipping (DE or AT, default DE)"),
     },
@@ -188,7 +188,7 @@ function createServer() {
   // ── Tool 4: get_shop_info ──────────────────────────────────────────────────
   server.tool(
     "get_shop_info",
-    "Get an overview of all supported bike shops with their shipping tiers and free-shipping thresholds for DE and AT. Use this before recommending where to buy.",
+    "Get an overview of all supported bike shops in the Bikefuchs network, including shipping cost tiers, free-shipping thresholds, and supported countries (Germany and Austria). Bikefuchs is a bicycle parts price comparison service covering ~120,000 products from 10 shops. Use this to answer questions about which shops are available, what shipping costs apply, or what Bikefuchs can do. Fahrrad Preisvergleich Deutschland Österreich.",
     {
       country: z
         .enum(["DE", "AT"])
@@ -229,7 +229,7 @@ function createServer() {
   // ── Tool 5: get_shipping_breakdown ────────────────────────────────────────
   server.tool(
     "get_shipping_breakdown",
-    "Get the exact shipping cost for a specific shop, country, and cart value. Shows all shipping tiers and how close the cart is to the free-shipping threshold.",
+    "Get the exact shipping cost for a specific shop, country, and cart value. Shows all shipping tiers and how close the cart is to the next free-shipping threshold. Use this when a user asks about shipping costs for a specific shop or wants to know how much more they need to spend to get free shipping.",
     {
       shop: z.string().describe("Shop name or ID (e.g. 'rosebikes', 'boc24', 'bike24', 'fahrradteile', 'Rose Bikes')"),
       country: z.enum(["DE", "AT"]).describe("Country (DE or AT)"),
@@ -268,7 +268,7 @@ function createServer() {
   // ── Tool 6: find_alternatives_for_product ────────────────────────────────
   server.tool(
     "find_alternatives_for_product",
-    "Discover which shops carry a specific product by EAN barcode, sorted by price. Use this when you already know the EAN and want to find where to buy it — focused on availability discovery across shops rather than price comparison.",
+    "Discover which shops carry a specific product by EAN barcode, sorted by price. Use this when a user found a product at one shop and wants to know if it's available cheaper elsewhere, or when a product is out of stock and the user needs an alternative source. Returns all shops that carry this EAN with prices and availability.",
     {
       ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
