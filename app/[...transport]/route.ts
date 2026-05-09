@@ -36,7 +36,7 @@ function mcpText(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-const TOOL_ANNOTATIONS = {
+const TOOL_HINTS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
@@ -59,7 +59,7 @@ function createServer() {
       max_price: z.number().positive().optional().describe("Upper price bound in EUR (inclusive)"),
       category: z.string().optional().describe("Filter by merchant category (partial match, e.g. 'Fahrräder' or 'Bremsen')"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Search Bike Products" },
     async ({ q, country, in_stock, max_results, shop, max_price, category }) => {
       console.info(`[MCP] search_product: q="${q}" country=${country} in_stock=${in_stock} max=${max_results}${shop ? ` shop=${shop}` : ''}${max_price !== undefined ? ` max_price=${max_price}` : ''}${category ? ` category=${category}` : ''}`);
       try {
@@ -101,7 +101,7 @@ function createServer() {
       ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Get Best Price by EAN" },
     async ({ ean, country }) => {
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
@@ -144,7 +144,7 @@ function createServer() {
         ),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing and shipping (DE or AT, default DE)"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Optimize Shopping Cart" },
     async ({ urls, country }) => {
       console.info(`[MCP] optimize_cart: ${urls.length} URL(s) country=${country}`);
       try {
@@ -205,7 +205,7 @@ function createServer() {
         .optional()
         .describe("Filter output to a specific country (optional — omit for both DE and AT)"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Get Shop Overview" },
     async ({ country }) => {
       console.info(`[MCP] get_shop_info country=${country ?? "all"}`);
       try {
@@ -246,7 +246,7 @@ function createServer() {
       country: z.enum(["DE", "AT"]).describe("Country (DE or AT)"),
       cart_value: z.number().min(0).describe("Total cart value in EUR (e.g. 49.99)"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Get Shipping Cost" },
     async ({ shop, country, cart_value }) => {
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
       try {
@@ -285,7 +285,7 @@ function createServer() {
       ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
     },
-    TOOL_ANNOTATIONS,
+    { ...TOOL_HINTS, title: "Find Alternative Shops" },
     async ({ ean, country }) => {
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
