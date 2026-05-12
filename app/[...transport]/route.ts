@@ -122,7 +122,7 @@ function createServer() {
         });
 
         return mcpText(
-          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${FOOTER}`
+          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.\n\n## Cart Optimization\nTo add this product to a cart optimization, use this EAN:\n\`optimize_cart(eans: ["${ean}"])\`${FOOTER}`
         );
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
