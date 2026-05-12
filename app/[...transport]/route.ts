@@ -7,7 +7,7 @@ import { z } from "zod";
 const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
 const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
-  "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com) — Bike price comparison for DE & AT*";
+  "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com) · Kann Affiliate-Links enthalten*";
 
 async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
