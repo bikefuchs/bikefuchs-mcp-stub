@@ -9,9 +9,9 @@ const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
   "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com) — Bike price comparison for DE & AT*";
 
-async function apiFetch(path: string, options?: RequestInit): Promise<Response> {
+async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = new Headers(options?.headers);
     headers.set("Accept", "application/json");
@@ -21,8 +21,8 @@ async function apiFetch(path: string, options?: RequestInit): Promise<Response> 
   }
 }
 
-async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await apiFetch(path, options);
+async function apiJson<T>(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<T> {
+  const res = await apiFetch(path, options, timeoutMs);
   const contentType = res.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     const body = await res.text();
@@ -122,7 +122,7 @@ function createServer() {
         });
 
         return mcpText(
-          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**${FOOTER}`
+          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n💡 To optimize a cart with this and other products, collect the EANs and call optimize_cart.${FOOTER}`
         );
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -133,60 +133,54 @@ function createServer() {
   // ── Tool 3: optimize_cart ──────────────────────────────────────────────────
   server.tool(
     "optimize_cart",
-    "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide product URLs from supported shops and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT). Supported input shops: BIKE24 (bike24.de, bike24.at), BOC24 (boc24.de), Fahrrad24 (fahrrad24.de, velondo.at), Rose Bikes (rosebikes.de, rosebikes.at), fahrrad-teile.shop, Bike Mailorder (bike-mailorder.com, bike-mailorder.at), Maciag Offroad (maciag.de), Bike-Discount (bike-discount.de), bike-components (bike-components.de). Use this when a user has multiple bike parts to buy and wants to know the cheapest way to split their order across shops. Warenkorb optimieren Versandkosten.",
+    "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide EAN barcodes (from search_product or get_best_price results) and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT). Covers 6 feed shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) plus 3 scraping shops (BIKE24, Bike-Discount, bike-components) when cached. Use this when a user has multiple bike parts to buy and wants to know the cheapest way to split their order. Tip: call get_best_price or search_product first to warm the cache for scraping shops. Warenkorb optimieren Versandkosten.",
     {
-      urls: z
-        .array(z.string().url())
+      eans: z
+        .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
         .min(1)
         .max(20)
-        .describe(
-          "Product page URLs from supported shops. Supported: bike24.de, bike24.at, boc24.de, fahrrad24.de, velondo.at, rosebikes.de, rosebikes.at, fahrrad-teile.shop, bike-mailorder.com, bike-mailorder.at, maciag.de, bike-discount.de, bike-components.de"
-        ),
+        .describe("EAN barcodes of the products to optimize (8–14 digits each, e.g. ['4524667749493', '4055205261677']). Get EANs from search_product or get_best_price results."),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing and shipping (DE or AT, default DE)"),
     },
     { ...TOOL_HINTS, title: "Optimize Shopping Cart" },
-    async ({ urls, country }) => {
-      console.info(`[MCP] optimize_cart: ${urls.length} URL(s) country=${country}`);
+    async ({ eans, country }) => {
+      console.info(`[MCP] optimize_cart: ${eans.length} EAN(s) country=${country}`);
       try {
-        const data = await apiJson<OptimizeResult>("/api/cart/optimize-from-urls", {
+        const data = await apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ urls, country }),
+          body: JSON.stringify({ eans, country }),
         });
 
+        if (!data.success || !data.result) {
+          let msg = `Could not optimize cart: ${data.error ?? "No shops found for any of the provided EANs."}`;
+          if (data.eans_skipped?.length) {
+            msg += `\n\nSkipped EANs (no shops found): ${data.eans_skipped.join(", ")}`;
+            msg += `\n\n💡 Call get_best_price for each EAN first to warm the cache for scraping shops.`;
+          }
+          return mcpText(msg + FOOTER);
+        }
+
+        const { result } = data;
         let md = `## Cart Optimization (${country})\n\n`;
 
-        if (data.products_resolved?.length) {
-          md += `### Resolved Products\n`;
-          for (const p of data.products_resolved) {
-            md += `- **${p.product_name ?? "Unknown"}** (EAN: ${p.ean})\n`;
-            md += `  ${p.source_shop} · €${p.source_price.toFixed(2)} · ${p.alternatives_found} alternative(s)\n`;
-          }
-          md += "\n";
+        if (data.eans_skipped?.length) {
+          md += `⚠️ No shops found for EAN(s): ${data.eans_skipped.join(", ")} — call get_best_price first to warm the cache.\n\n`;
         }
 
-        const opt = data.optimization;
-        if (opt?.shopBreakdown) {
-          md += `### Optimal Shop Split\n`;
-          for (const [shop, info] of Object.entries(opt.shopBreakdown)) {
-            md += `\n**${shop}** — products €${info.subtotal.toFixed(2)} + shipping €${info.shipping.toFixed(2)}\n`;
-            for (const item of info.items) {
-              md += `  - [${item.productName} — ${shop}](${item.url}) — **€${item.price.toFixed(2)}**\n`;
-            }
+        md += `### Optimal Shop Split\n`;
+        for (const order of result.orders) {
+          md += `\n**${order.shopName}** — products €${order.subtotal.toFixed(2)} + shipping €${order.shippingCost.toFixed(2)} = €${order.total.toFixed(2)}\n`;
+          for (const item of order.products) {
+            md += `  - [${item.productName} — ${order.shopName}](${item.url}) — **€${item.price.toFixed(2)}**\n`;
           }
-          md += `\n**Total cost: €${opt.totalCost.toFixed(2)}**`;
-          if (opt.savings !== null && opt.savings > 0) {
-            md += ` *(saves €${opt.savings.toFixed(2)} vs. single shop)*`;
-          }
-          md += "\n";
         }
 
-        if (data.errors?.length) {
-          md += `\n### Warnings\n`;
-          for (const e of data.errors) {
-            md += `- ${e.error}\n  URL: ${e.url}\n`;
-          }
+        md += `\n**Total cost: €${result.totalCost.toFixed(2)}** (incl. €${result.totalShipping.toFixed(2)} shipping)`;
+        if (result.savings !== null && result.savings > 0) {
+          md += ` *(saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` / ${result.savingsPercent}%` : ""} vs. single shop)*`;
         }
+        md += "\n";
 
         return mcpText(md + FOOTER);
       } catch (err) {
@@ -315,6 +309,46 @@ function createServer() {
     }
   );
 
+  // ── Tool 7: resolve_product ───────────────────────────────────────────────
+  server.tool(
+    "resolve_product",
+    "Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: BIKE24 (bike24.de, bike24.at), BOC24 (boc24.de), Fahrrad24 (fahrrad24.de, velondo.at), Rose Bikes (rosebikes.de, rosebikes.at), fahrrad-teile.shop, Bike Mailorder (bike-mailorder.com, bike-mailorder.at), Maciag Offroad (maciag.de), Bike-Discount (bike-discount.de), bike-components (bike-components.de). Scraping shops (BIKE24, Bike-Discount, bike-components) may take up to 12 seconds on first load.",
+    {
+      url: z.string().url().describe("Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')"),
+      country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
+    },
+    { ...TOOL_HINTS, title: "Resolve Product URL" },
+    async ({ url, country }) => {
+      console.info(`[MCP] resolve_product: url=${url} country=${country}`);
+      try {
+        const data = await apiJson<ResolveResult>("/api/products/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, country }),
+        }, 25000);
+
+        if (data.error) {
+          return mcpText(`Could not resolve product: ${data.error}${FOOTER}`);
+        }
+
+        const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
+        const link = data.purchase_url ?? data.product_url ?? url;
+        let md = `## Resolved Product\n\n`;
+        md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **€${data.price.toFixed(2)}** ${stockIcon}\n\n`;
+        if (data.ean) {
+          md += `**EAN:** ${data.ean}\n\n`;
+          md += `💡 Use this EAN with get_best_price to compare prices across all shops, or collect EANs and call optimize_cart to minimize your total cart cost.`;
+        } else {
+          md += `⚠️ No EAN found for this product — price comparison may not be available.`;
+        }
+
+        return mcpText(md + FOOTER);
+      } catch (err) {
+        return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  );
+
   return server;
 }
 
@@ -381,28 +415,48 @@ interface ShippingResult {
   error?: string;
 }
 
-interface OptimizeShopInfo {
-  subtotal: number;
-  shipping: number;
-  items: Array<{ productName: string; price: number; url: string }>;
+interface ShopOrderItem {
+  productName: string;
+  shopName: string;
+  price: number;
+  url: string;
+  inStock: boolean;
 }
 
-interface OptimizeResult {
+interface ShopOrder {
+  shopName: string;
+  products: ShopOrderItem[];
+  subtotal: number;
+  shippingCost: number;
+  total: number;
+}
+
+interface OptimizationResult {
+  orders: ShopOrder[];
+  totalCost: number;
+  totalShipping: number;
+  savings: number | null;
+  savingsPercent: number | null;
+}
+
+interface OptimizeFromEansResult {
   success: boolean;
   country: string;
-  products_resolved: Array<{
-    input_url: string;
-    ean: string;
-    product_name: string | null;
-    source_shop: string;
-    source_price: number;
-    alternatives_found: number;
-  }>;
-  optimization: {
-    totalCost: number;
-    savings: number | null;
-    shopBreakdown: Record<string, OptimizeShopInfo>;
-  } | null;
-  errors?: Array<{ url: string; error: string }>;
+  eans_requested: string[];
+  eans_resolved: string[];
+  eans_skipped: string[];
+  result: OptimizationResult | null;
+  error?: string;
+}
+
+interface ResolveResult {
+  ean: string | null;
+  product_name: string | null;
+  price: number;
+  in_stock: boolean;
+  shop: string;
+  shop_id: string;
+  purchase_url: string | null;
+  product_url: string | null;
   error?: string;
 }
