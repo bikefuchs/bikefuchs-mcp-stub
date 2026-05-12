@@ -49,7 +49,7 @@ function createServer() {
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.tool(
     "search_product",
-    "Search for bicycle parts, components, accessories, and cycling clothing across 6 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich.",
+    "Search for bicycle parts, components, accessories, and cycling clothing across 6 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, EAN barcodes, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
     {
       q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -96,7 +96,7 @@ function createServer() {
   // ── Tool 2: get_best_price ─────────────────────────────────────────────────
   server.tool(
     "get_best_price",
-    "Look up a product by EAN barcode and find the best price across all feed shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to find the single cheapest price across all available shops.",
+    "Look up a product by EAN barcode and find the best price across all 10 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices. IMPORTANT: If the user is buying multiple products, call get_best_price for each EAN first (this caches scraping-shop prices), then call optimize_cart with all EANs to find the cheapest total including shipping.",
     {
       ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -133,7 +133,7 @@ function createServer() {
   // ── Tool 3: optimize_cart ──────────────────────────────────────────────────
   server.tool(
     "optimize_cart",
-    "Optimize a shopping cart by EAN barcodes. Takes an array of EAN barcodes (NOT URLs) and finds the cheapest total cost including shipping across all 10 shops. Call get_best_price for each EAN first to ensure all shop prices are cached, then pass the EANs here. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE')",
+    "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. REQUIRED: Call get_best_price for each EAN first to ensure scraping-shop prices are cached, then pass all EANs here. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE')",
     {
       eans: z
         .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
