@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
+import { trackMcpEvent } from "../lib/tracking";
 
 // Use www subdomain directly — bikefuchs.com (apex) 307-redirects to www
 const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
@@ -61,6 +62,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Search Bike Products" },
     async ({ q, country, in_stock, max_results, shop, max_price, category }) => {
+      trackMcpEvent("MCP Search", { query: q });
       console.info(`[MCP] search_product: q="${q}" country=${country} in_stock=${in_stock} max=${max_results}${shop ? ` shop=${shop}` : ''}${max_price !== undefined ? ` max_price=${max_price}` : ''}${category ? ` category=${category}` : ''}`);
       try {
         const params = new URLSearchParams({
@@ -103,6 +105,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Get Best Price by EAN" },
     async ({ ean, country }) => {
+      trackMcpEvent("MCP Best Price", { ean });
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
         const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
@@ -144,6 +147,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Optimize Shopping Cart" },
     async ({ eans, country }) => {
+      trackMcpEvent("MCP Optimize Cart", { product_count: eans.length, country });
       console.info(`[MCP] optimize_cart: ${eans.length} EAN(s) country=${country}`);
       try {
         const data = await apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
@@ -208,6 +212,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Get Shop Overview" },
     async ({ country }) => {
+      trackMcpEvent("MCP Shop Info", {});
       console.info(`[MCP] get_shop_info country=${country ?? "all"}`);
       try {
         const data = await apiJson<{ shops?: Record<string, Record<string, ShippingCountryInfo>>; error?: string }>("/api/shops/shipping");
@@ -249,6 +254,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Get Shipping Cost" },
     async ({ shop, country, cart_value }) => {
+      trackMcpEvent("MCP Shipping", { shop });
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
       try {
         const params = new URLSearchParams({ shop, country, cart_value: String(cart_value) });
@@ -288,6 +294,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Find Alternative Shops" },
     async ({ ean, country }) => {
+      trackMcpEvent("MCP Alternatives", { ean });
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
         const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
@@ -327,6 +334,7 @@ function createServer() {
     },
     { ...TOOL_HINTS, title: "Resolve Product URL" },
     async ({ url, country }) => {
+      trackMcpEvent("MCP Resolve", { url });
       console.info(`[MCP] resolve_product: url=${url} country=${country}`);
       try {
         const data = await apiJson<ResolveResult>("/api/products/resolve", {

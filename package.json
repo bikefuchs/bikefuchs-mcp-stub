@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
+    "@umami/node": "^0.4.0",
     "next": "^15.3.0"
   },
   "devDependencies": {
