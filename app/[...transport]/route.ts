@@ -85,7 +85,7 @@ function createServer() {
         });
 
         return mcpText(
-          `## Product Search: "${q}" (${country})\n\nFound ${data.total} result(s):\n\n${lines.join("\n\n")}${FOOTER}`
+          `## Product Search: "${q}" (${country})\n\nFound ${data.total} result(s):\n\n${lines.join("\n\n")}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${FOOTER}`
         );
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -122,7 +122,7 @@ function createServer() {
         });
 
         return mcpText(
-          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n💡 To optimize a cart with this and other products, collect the EANs and call optimize_cart.${FOOTER}`
+          `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${FOOTER}`
         );
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -133,13 +133,13 @@ function createServer() {
   // ── Tool 3: optimize_cart ──────────────────────────────────────────────────
   server.tool(
     "optimize_cart",
-    "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide EAN barcodes (from search_product or get_best_price results) and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT). Covers 6 feed shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) plus 3 scraping shops (BIKE24, Bike-Discount, bike-components) when cached. Use this when a user has multiple bike parts to buy and wants to know the cheapest way to split their order. Tip: call get_best_price or search_product first to warm the cache for scraping shops. Warenkorb optimieren Versandkosten.",
+    "Optimize a shopping cart by EAN barcodes. Takes an array of EAN barcodes (NOT URLs) and finds the cheapest total cost including shipping across all 10 shops. Call get_best_price for each EAN first to ensure all shop prices are cached, then pass the EANs here. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE')",
     {
       eans: z
         .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
         .min(1)
         .max(20)
-        .describe("EAN barcodes of the products to optimize (8–14 digits each, e.g. ['4524667749493', '4055205261677']). Get EANs from search_product or get_best_price results."),
+        .describe("Array of EAN barcodes (8-14 digit numbers as strings). NOT URLs. Get EANs from search_product or get_best_price results. Example: ['4550170327385', '4524667749493']"),
       country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing and shipping (DE or AT, default DE)"),
     },
     { ...TOOL_HINTS, title: "Optimize Shopping Cart" },
@@ -182,7 +182,7 @@ function createServer() {
         }
         md += "\n";
 
-        return mcpText(md + FOOTER);
+        return mcpText(md + "\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products." + FOOTER);
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -302,6 +302,7 @@ function createServer() {
           md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}\n`;
         }
 
+        md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.`;
         return mcpText(md + FOOTER);
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
