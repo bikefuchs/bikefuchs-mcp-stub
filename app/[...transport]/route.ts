@@ -185,7 +185,7 @@ function createServer() {
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
         for (const order of result.orders) {
           for (const item of order.products) {
-            md += `→ [${item.productName} — ${order.shopName}](${item.url})\n`;
+            md += `- [${item.productName} — ${order.shopName}](${item.url})\n`;
           }
         }
 
