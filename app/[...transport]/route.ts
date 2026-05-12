@@ -182,6 +182,13 @@ function createServer() {
         }
         md += "\n";
 
+        md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
+        for (const order of result.orders) {
+          for (const item of order.products) {
+            md += `→ [${item.productName} — ${order.shopName}](${item.url})\n`;
+          }
+        }
+
         return mcpText(md + "\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products." + FOOTER);
       } catch (err) {
         return mcpText(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
