@@ -79,9 +79,9 @@ function createServer() {
         }
 
         const lines = data.results.map((p, i) => {
-          const stock = p.in_stock ? "in stock" : "out of stock";
+          const stockIcon = p.in_stock ? "✅" : "❌";
           const link = p.purchase_url ?? p.product_url ?? "";
-          return `${i + 1}. **${p.product_name}**\n   ${p.shop} · €${p.price.toFixed(2)} · ${stock}${p.ean ? ` · EAN ${p.ean}` : ""}\n   [View product](${link})`;
+          return `${i + 1}. [${p.product_name} — ${p.shop}](${link}) — **€${p.price.toFixed(2)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`;
         });
 
         return mcpText(
@@ -115,10 +115,10 @@ function createServer() {
 
         const productName = data.cheapest?.product_name ?? "Product";
         const lines = data.results.map((r, i) => {
-          const stock = r.in_stock ? "in stock" : "out of stock";
-          const tag = i === 0 ? " 🏆 cheapest" : "";
+          const stockIcon = r.in_stock ? "✅" : "❌";
+          const trophy = i === 0 ? " 🏆" : "";
           const link = r.purchase_url ?? r.product_url ?? "";
-          return `${i + 1}. **${r.shop}**${tag} — €${r.price.toFixed(2)} (${stock})\n   [Buy here](${link})`;
+          return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}`;
         });
 
         return mcpText(
@@ -171,7 +171,7 @@ function createServer() {
           for (const [shop, info] of Object.entries(opt.shopBreakdown)) {
             md += `\n**${shop}** — products €${info.subtotal.toFixed(2)} + shipping €${info.shipping.toFixed(2)}\n`;
             for (const item of info.items) {
-              md += `  - ${item.productName}: €${item.price.toFixed(2)} — [Buy](${item.url})\n`;
+              md += `  - [${item.productName} — ${shop}](${item.url}) — **€${item.price.toFixed(2)}**\n`;
             }
           }
           md += `\n**Total cost: €${opt.totalCost.toFixed(2)}**`;
@@ -302,10 +302,10 @@ function createServer() {
 
         for (let i = 0; i < data.results.length; i++) {
           const r = data.results[i];
-          const stock = r.in_stock ? "in stock" : "out of stock";
-          const tag = i === 0 ? " 🏆 best price" : "";
+          const stockIcon = r.in_stock ? "✅" : "❌";
+          const trophy = i === 0 ? " 🏆" : "";
           const link = r.purchase_url ?? r.product_url ?? "";
-          md += `${i + 1}. **${r.shop}**${tag} — €${r.price.toFixed(2)} (${stock})\n   [Buy here](${link})\n`;
+          md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}\n`;
         }
 
         return mcpText(md + FOOTER);
