@@ -9,6 +9,17 @@ const stubModules = path.join(__dirname, "node_modules");
 /** @type {import('next').NextConfig} */
 const config = {
   outputFileTracingRoot: __dirname,
+  async headers() {
+    return [
+      {
+        source: '/.well-known/openai-apps-challenge',
+        headers: [
+          { key: 'Content-Type', value: 'text/plain' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+        ],
+      },
+    ];
+  },
   webpack: (webpackConfig) => {
     webpackConfig.resolve.modules = [
       stubModules,
