@@ -44,8 +44,24 @@ const TOOL_HINTS = {
   openWorldHint: false,
 } as const;
 
+const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across 9 German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
+
+WORKFLOW GUIDE:
+- Single product search: Use search_product with keywords → returns products with EANs and prices
+- Best price for a known product: Use get_best_price with an EAN → returns prices across all 9 shops including shipping costs
+- Multiple products to buy together: Use search_product for each item to get EANs, then call optimize_cart with all EANs → this calculates the cheapest combination of shops factoring in shipping costs and free-shipping thresholds. This is the key feature of Bikefuchs.
+- Product URL from a shop: Use resolve_product to extract EAN and product info from a shop URL
+- Shop overview: Use get_shop_info for a list of supported shops and their shipping costs
+- Shipping details: Use get_shipping_breakdown for exact shipping costs per shop and country
+
+IMPORTANT RULES:
+- Always use the tools to get real prices. Never guess or estimate prices from memory.
+- For cart optimization (buying multiple items), ALWAYS use optimize_cart after collecting EANs. Do NOT manually calculate shipping — optimize_cart handles this automatically.
+- Results contain affiliate links. Always pass these links to the user as provided.
+- Supported countries: Germany (DE) and Austria (AT).`;
+
 function createServer() {
-  const server = new McpServer({ name: "bikefuchs", version: "1.0.0" });
+  const server = new McpServer({ name: "bikefuchs", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.tool(
