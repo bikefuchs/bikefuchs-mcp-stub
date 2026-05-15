@@ -123,7 +123,7 @@ function createServer() {
 
         const lines = data.results.map((p, i) => {
           const stockIcon = p.in_stock ? "✅" : "❌";
-          const link = p.purchase_url ?? p.product_url ?? "";
+          const link = p.purchase_url || p.product_url || p.affiliate_link || "";
           return `${i + 1}. [${p.product_name} — ${p.shop}](${link}) — **€${p.price.toFixed(2)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`;
         });
 
@@ -141,7 +141,7 @@ function createServer() {
               currency: "EUR",
               shop: p.shop,
               availability: p.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: p.purchase_url ?? p.product_url ?? "",
+              affiliate_url: p.purchase_url || p.product_url || p.affiliate_link || "",
               product_url: p.product_url ?? undefined,
             })),
             total_results: data.total ?? data.results.length,
@@ -204,7 +204,7 @@ function createServer() {
         const lines = data.results.map((r, i) => {
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
-          const link = r.purchase_url ?? r.product_url ?? "";
+          const link = r.purchase_url || r.product_url || r.affiliate_link || "";
           return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}`;
         });
 
@@ -220,7 +220,7 @@ function createServer() {
               price: r.price,
               currency: "EUR",
               availability: r.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: r.purchase_url ?? r.product_url ?? "",
+              affiliate_url: r.purchase_url || r.product_url || r.affiliate_link || "",
             })),
             cheapest_shop: data.cheapest!.shop,
             cheapest_price: data.cheapest!.price,
@@ -534,7 +534,7 @@ function createServer() {
           const r = data.results[i];
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
-          const link = r.purchase_url ?? r.product_url ?? "";
+          const link = r.purchase_url || r.product_url || r.affiliate_link || "";
           md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}\n`;
         }
 
@@ -550,7 +550,7 @@ function createServer() {
               price: r.price,
               currency: "EUR",
               availability: r.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: r.purchase_url ?? r.product_url ?? "",
+              affiliate_url: r.purchase_url || r.product_url || r.affiliate_link || "",
             })),
           },
         };
@@ -595,7 +595,7 @@ function createServer() {
         }
 
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
-        const link = data.purchase_url ?? data.product_url ?? url;
+        const link = data.purchase_url || data.product_url || url;
         let md = `## Resolved Product\n\n`;
         md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **€${data.price.toFixed(2)}** ${stockIcon}\n\n`;
         if (data.ean) {
@@ -612,7 +612,7 @@ function createServer() {
             ean: data.ean ?? undefined,
             price: data.price,
             shop: data.shop,
-            affiliate_url: data.purchase_url ?? data.product_url ?? undefined,
+            affiliate_url: data.purchase_url || data.product_url || undefined,
           },
         };
       } catch (err) {
