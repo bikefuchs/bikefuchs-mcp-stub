@@ -53,7 +53,7 @@ const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle 
 WORKFLOW GUIDE:
 - Single product search: Use search_product with keywords → returns products with EANs and prices
 - Best price for a known product: Use get_best_price with an EAN → returns prices across all 9 shops including shipping costs
-- Multiple products to buy together: Use search_product for each item to get EANs, then call optimize_cart with all EANs → this calculates the cheapest combination of shops factoring in shipping costs and free-shipping thresholds. This is the key feature of Bikefuchs.
+- Multiple products to buy together: Use search_product for each item to get EANs, then call optimize_cart with all EANs → this calculates the cheapest combination of shops factoring in shipping costs and free-shipping thresholds, including live prices from scraping shops. This is the key feature of Bikefuchs.
 - Product URL from a shop: Use resolve_product to extract EAN and product info from a shop URL
 - Shop overview: Use get_shop_info for a list of supported shops and their shipping costs
 - Shipping details: Use get_shipping_breakdown for exact shipping costs per shop and country
@@ -158,7 +158,7 @@ function createServer() {
     "get_best_price",
     {
       title: "Get Best Price by EAN",
-      description: "Look up a product by EAN barcode and find the best price across all 10 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices. IMPORTANT: If the user is buying multiple products, call get_best_price for each EAN first (this caches scraping-shop prices), then call optimize_cart with all EANs to find the cheapest total including shipping.",
+      description: "Look up a product by EAN barcode and find the best price across all 10 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.",
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -210,7 +210,7 @@ function createServer() {
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.\n\n## Cart Optimization\nTo add this product to a cart optimization, use this EAN:\n\`optimize_cart(eans: ["${ean}"])\`${FOOTER}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
           ),
           structuredContent: {
             ean,
@@ -237,7 +237,7 @@ function createServer() {
     "optimize_cart",
     {
       title: "Optimize Shopping Cart",
-      description: "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. REQUIRED: Call get_best_price for each EAN first to ensure scraping-shop prices are cached, then pass all EANs here. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE')",
+      description: "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE')",
       inputSchema: {
         eans: z
           .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
@@ -282,7 +282,7 @@ function createServer() {
           let msg = `Could not optimize cart: ${data.error ?? "No shops found for any of the provided EANs."}`;
           if (data.eans_skipped?.length) {
             msg += `\n\nSkipped EANs (no shops found): ${data.eans_skipped.join(", ")}`;
-            msg += `\n\n💡 Call get_best_price for each EAN first to warm the cache for scraping shops.`;
+            msg += `\n\n💡 These EANs may not be carried by any supported shop.`;
           }
           return mcpError(msg + FOOTER);
         }
@@ -291,7 +291,7 @@ function createServer() {
         let md = `## Cart Optimization (${country})\n\n`;
 
         if (data.eans_skipped?.length) {
-          md += `⚠️ No shops found for EAN(s): ${data.eans_skipped.join(", ")} — call get_best_price first to warm the cache.\n\n`;
+          md += `⚠️ No shops found for EAN(s): ${data.eans_skipped.join(", ")} — these products may not be carried by any supported shop.\n\n`;
         }
 
         md += `### Optimal Shop Split\n`;
