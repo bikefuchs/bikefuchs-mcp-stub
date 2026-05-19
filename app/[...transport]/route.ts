@@ -48,7 +48,7 @@ const TOOL_HINTS = {
   openWorldHint: false,
 } as const;
 
-const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across 9 German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
+const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across 10 German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
 
 WORKFLOW GUIDE:
 - Single product search: Use search_product with keywords → returns products with EANs and prices
@@ -72,13 +72,13 @@ function createServer() {
     "search_product",
     {
       title: "Search Bike Products",
-      description: "Search for bicycle parts, components, accessories, and cycling clothing across 6 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, EAN barcodes, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
+      description: "Search for bicycle parts, components, accessories, and cycling clothing across 7 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, EAN barcodes, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
       inputSchema: {
         q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
         in_stock: z.boolean().optional().default(true).describe("Only return in-stock products (default true)"),
         max_results: z.number().int().min(1).max(20).optional().default(10).describe("Max results (1–20, default 10)"),
-        shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo", "maciag"]).optional().describe("Restrict results to a single shop"),
+        shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo", "maciag", "hibike"]).optional().describe("Restrict results to a single shop"),
         max_price: z.number().positive().optional().describe("Upper price bound in EUR (inclusive)"),
         category: z.string().optional().describe("Filter by merchant category (partial match, e.g. 'Fahrräder' or 'Bremsen')"),
       },
@@ -158,7 +158,7 @@ function createServer() {
     "get_best_price",
     {
       title: "Get Best Price by EAN",
-      description: "Look up a product by EAN barcode and find the best price across all 10 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.",
+      description: "Look up a product by EAN barcode and find the best price across all 11 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.",
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
