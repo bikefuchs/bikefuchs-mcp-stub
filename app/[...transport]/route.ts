@@ -283,9 +283,17 @@ function createServer() {
         if (!data.success || !data.result) {
           if (data.error === 'missing_prices' && data.missing_eans?.length) {
             const callList = data.missing_eans.map((e: string) => `- get_best_price(ean: "${e}")`).join('\n');
-            return mcpError(
+            let msg =
               `Keine Preisdaten für EAN(s): ${data.missing_eans.join(', ')}\n\n` +
-              `💡 Bitte zuerst get_best_price für jede fehlende EAN aufrufen, um die Preise zu laden. Danach optimize_cart erneut starten:\n${callList}` +
+              `💡 Bitte zuerst get_best_price für jede fehlende EAN aufrufen, um die Preise zu laden. Danach optimize_cart erneut starten:\n${callList}`;
+            if (data.not_available_eans?.length) {
+              msg += `\n\nℹ️ Folgende EANs sind in keinem der unterstützten Shops verfügbar: ${data.not_available_eans.join(', ')}`;
+            }
+            return mcpError(msg + FOOTER);
+          }
+          if (data.error === 'not_available' && data.not_available_eans?.length) {
+            return mcpError(
+              `Die angegebenen Produkte sind in keinem der unterstützten Shops verfügbar: ${data.not_available_eans.join(', ')}` +
               FOOTER
             );
           }
@@ -302,6 +310,9 @@ function createServer() {
 
         if (data.eans_skipped?.length) {
           md += `⚠️ No shops found for EAN(s): ${data.eans_skipped.join(", ")} — these products may not be carried by any supported shop.\n\n`;
+        }
+        if (data.not_available_eans?.length) {
+          md += `ℹ️ Folgende EANs sind in keinem unterstützten Shop verfügbar: ${data.not_available_eans.join(", ")}\n\n`;
         }
 
         md += `### Optimal Shop Split\n`;
@@ -727,6 +738,7 @@ interface OptimizeFromEansResult {
   eans_requested?: string[];
   eans_resolved?: string[];
   eans_skipped?: string[];
+  not_available_eans?: string[];
   result: OptimizationResult | null;
   error?: string;
   missing_eans?: string[];
