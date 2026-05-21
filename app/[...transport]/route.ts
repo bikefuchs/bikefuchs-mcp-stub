@@ -10,6 +10,41 @@ const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
   "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com) · Kann Affiliate-Links enthalten*";
 
+const INTERNAL_ID_TO_SLUG: Record<string, string> = {
+  'boc24': 'boc24',
+  'fahrrad24': 'fahrrad24',
+  'rosebikes': 'rose-bikes',
+  'fahrradteile': 'fahrrad-teile-shop',
+  'bmo': 'bike-mailorder',
+  'maciag': 'maciag-offroad',
+  'hibike': 'hibike',
+  'bike24': 'bike24',
+  'bike-discount': 'bike-discount',
+  'bike-components': 'bike-components',
+};
+
+const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
+  'BOC24': 'boc24',
+  'Fahrrad24': 'fahrrad24',
+  'Rose Bikes': 'rose-bikes',
+  'ROSE Bikes': 'rose-bikes',
+  'fahrrad-teile.shop': 'fahrrad-teile-shop',
+  'Fahrradteile': 'fahrrad-teile-shop',
+  'Bike Mailorder': 'bike-mailorder',
+  'Maciag Offroad': 'maciag-offroad',
+  'HiBike': 'hibike',
+  'BIKE24': 'bike24',
+  'Bike-Discount': 'bike-discount',
+  'bike-components': 'bike-components',
+};
+
+function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
+  if (!shopId) return "";
+  const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
+  const eanSegment = ean && /^\d{8,14}$/.test(ean) ? ean : 'home';
+  return `https://www.bikefuchs.com/go/${slug}/${eanSegment}?src=mcp&loc=${toolName}`;
+}
+
 async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -125,7 +160,7 @@ function createServer() {
 
         const lines = data.results.map((p, i) => {
           const stockIcon = p.in_stock ? "✅" : "❌";
-          const link = p.purchase_url || p.product_url || p.affiliate_link || "";
+          const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product');
           return `${i + 1}. [${p.product_name} — ${p.shop}](${link}) — **€${p.price.toFixed(2)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`;
         });
 
@@ -143,7 +178,7 @@ function createServer() {
               currency: "EUR",
               shop: p.shop,
               availability: p.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: p.purchase_url || p.product_url || p.affiliate_link || "",
+              affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product'),
               product_url: p.product_url ?? undefined,
             })),
             total_results: data.total ?? data.results.length,
@@ -206,7 +241,7 @@ function createServer() {
         const lines = data.results.map((r, i) => {
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
-          const link = r.purchase_url || r.product_url || r.affiliate_link || "";
+          const link = buildGoUrl(r.shop_id, ean, 'get_best_price');
           return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}`;
         });
 
@@ -222,7 +257,7 @@ function createServer() {
               price: r.price,
               currency: "EUR",
               availability: r.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: r.purchase_url || r.product_url || r.affiliate_link || "",
+              affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
             })),
             cheapest_shop: data.cheapest!.shop,
             cheapest_price: data.cheapest!.price,
@@ -319,7 +354,7 @@ function createServer() {
         for (const order of result.orders) {
           md += `\n**${order.shopName}** — products €${order.subtotal.toFixed(2)} + shipping €${order.shippingCost.toFixed(2)} = €${order.total.toFixed(2)}\n`;
           for (const item of order.products) {
-            md += `  - [${item.productName} — ${order.shopName}](${item.url}) — **€${item.price.toFixed(2)}**\n`;
+            md += `  - [${item.productName} — ${order.shopName}](${buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart')}) — **€${item.price.toFixed(2)}**\n`;
           }
         }
 
@@ -332,7 +367,7 @@ function createServer() {
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
         for (const order of result.orders) {
           for (const item of order.products) {
-            md += `- [${item.productName} — ${order.shopName}](${item.url})\n`;
+            md += `- [${item.productName} — ${order.shopName}](${buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart')})\n`;
           }
         }
 
@@ -355,8 +390,9 @@ function createServer() {
                 shipping: order.shippingCost,
                 items: order.products.map(item => ({
                   name: item.productName,
+                  ean: item.ean,
                   price: item.price,
-                  affiliate_url: item.url,
+                  affiliate_url: buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart'),
                 })),
               })),
             },
@@ -555,7 +591,7 @@ function createServer() {
           const r = data.results[i];
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
-          const link = r.purchase_url || r.product_url || r.affiliate_link || "";
+          const link = buildGoUrl(r.shop_id, ean, 'find_alternatives');
           md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}\n`;
         }
 
@@ -571,7 +607,7 @@ function createServer() {
               price: r.price,
               currency: "EUR",
               availability: r.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: r.purchase_url || r.product_url || r.affiliate_link || "",
+              affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
             })),
           },
         };
@@ -616,7 +652,7 @@ function createServer() {
         }
 
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
-        const link = data.purchase_url || data.product_url || url;
+        const link = data.ean ? buildGoUrl(data.shop_id, data.ean, 'resolve_product') : url;
         let md = `## Resolved Product\n\n`;
         md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **€${data.price.toFixed(2)}** ${stockIcon}\n\n`;
         if (data.ean) {
@@ -633,7 +669,7 @@ function createServer() {
             ean: data.ean ?? undefined,
             price: data.price,
             shop: data.shop,
-            affiliate_url: data.purchase_url || data.product_url || undefined,
+            affiliate_url: data.ean ? buildGoUrl(data.shop_id, data.ean, 'resolve_product') : data.purchase_url || data.product_url || undefined,
           },
         };
       } catch (err) {
@@ -714,6 +750,7 @@ interface ShopOrderItem {
   price: number;
   url: string;
   inStock: boolean;
+  ean?: string;
 }
 
 interface ShopOrder {
