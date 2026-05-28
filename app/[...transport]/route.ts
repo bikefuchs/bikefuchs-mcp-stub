@@ -133,6 +133,11 @@ function createServer() {
           product_url: z.string().optional(),
         })),
         total_results: z.number(),
+        next_steps: z.array(z.object({
+          tool: z.string(),
+          hint: z.string(),
+          eans: z.array(z.string()).optional(),
+        })).optional(),
       },
       annotations: TOOL_HINTS,
     },
@@ -166,7 +171,7 @@ function createServer() {
 
         return {
           ...mcpText(
-            `## Product Search: "${q}" (${country})\n\nFound ${data.total} result(s):\n\n${lines.join("\n\n")}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${FOOTER}`
+            `## Product Search: "${q}" (${country})\n\nFound ${data.total} result(s):\n\n${lines.join("\n\n")}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.\n\n💡 Next steps: call get_best_price(ean) to compare prices across all 10 shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${FOOTER}`
           ),
           structuredContent: {
             query: q,
@@ -182,6 +187,10 @@ function createServer() {
               product_url: p.product_url ?? undefined,
             })),
             total_results: data.total ?? data.results.length,
+            next_steps: [
+              { tool: "get_best_price", hint: "Compare prices across all 10 shops (search only covers feed shops)", eans: data.results.map(p => p.ean).filter((e): e is string => !!e) },
+              { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
+            ],
           },
         };
       } catch (err) {
@@ -213,6 +222,11 @@ function createServer() {
         })),
         cheapest_shop: z.string(),
         cheapest_price: z.number(),
+        next_step: z.object({
+          tool: z.string(),
+          hint: z.string(),
+          eans: z.array(z.string()).optional(),
+        }).optional(),
       },
       annotations: TOOL_HINTS,
     },
@@ -261,6 +275,7 @@ function createServer() {
             })),
             cheapest_shop: data.cheapest!.shop,
             cheapest_price: data.cheapest!.price,
+            next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
           },
         };
       } catch (err) {
