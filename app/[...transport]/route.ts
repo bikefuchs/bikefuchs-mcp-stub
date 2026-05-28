@@ -317,6 +317,11 @@ function createServer() {
           })),
         }),
         savings_info: z.string().optional(),
+        stale_cache_warning: z.object({
+          eans_to_refresh: z.array(z.string()),
+          shops_missing: z.array(z.string()),
+          suggestion: z.string(),
+        }).optional(),
       },
       annotations: TOOL_HINTS,
     },
@@ -363,6 +368,10 @@ function createServer() {
         }
         if (data.not_available_eans?.length) {
           md += `ℹ️ Folgende EANs sind in keinem unterstützten Shop verfügbar: ${data.not_available_eans.join(", ")}\n\n`;
+        }
+        if (data.stale_cache_warning) {
+          const { eans_to_refresh, shops_missing } = data.stale_cache_warning;
+          md += `⚠️ Note: Price data for ${shops_missing.join(", ")} was not available for EAN(s): ${eans_to_refresh.join(", ")}. For the most accurate result, call get_best_price for these EANs first, then call optimize_cart again: ${eans_to_refresh.join(", ")}\n\n`;
         }
 
         md += `### Optimal Shop Split\n`;
@@ -412,6 +421,7 @@ function createServer() {
               })),
             },
             savings_info: savingsInfo,
+            stale_cache_warning: data.stale_cache_warning,
           },
         };
       } catch (err) {
@@ -796,6 +806,11 @@ interface OptimizeFromEansResult {
   missing_eans?: string[];
   message?: string;
   hint?: string;
+  stale_cache_warning?: {
+    eans_to_refresh: string[];
+    shops_missing: string[];
+    suggestion: string;
+  };
 }
 
 interface ResolveResult {
