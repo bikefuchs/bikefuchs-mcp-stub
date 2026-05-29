@@ -38,6 +38,28 @@ const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
   'bike-components': 'bike-components',
 };
 
+// ── Shop roster ────────────────────────────────────────────────────────────────
+// Single source of truth: src/config/shops.ts in the website repo.
+// Update both files whenever the shop list changes.
+const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike'];
+const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount', 'bike-components'];
+const ALL_SHOPS = [...FEED_SHOPS, ...SCRAPING_SHOPS];
+const SHOP_COUNT = ALL_SHOPS.length; // 10 — update when shops.ts changes
+
+// Resolve-product domain list — keep in sync with shops.ts
+const RESOLVE_SHOP_DOMAINS = [
+  'BIKE24 (bike24.de, bike24.at)',
+  'BOC24 (boc24.de)',
+  'Fahrrad24 (fahrrad24.de, velondo.at)',
+  'Rose Bikes (rosebikes.de, rosebikes.at)',
+  'fahrrad-teile.shop',
+  'Bike Mailorder (bike-mailorder.com, bike-mailorder.at)',
+  'Maciag Offroad (maciag.de)',
+  'HiBike (hibike.de)',
+  'Bike-Discount (bike-discount.de)',
+  'bike-components (bike-components.de)',
+];
+
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
   if (!shopId) return "";
   const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
@@ -83,11 +105,11 @@ const TOOL_HINTS = {
   openWorldHint: false,
 } as const;
 
-const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across 10 German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
+const SERVER_INSTRUCTIONS = `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across ${SHOP_COUNT} German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
 
 WORKFLOW GUIDE:
 - Single product search: Use search_product with keywords → returns products with EANs and prices
-- Best price for a known product: Use get_best_price with an EAN → returns prices across all 9 shops including shipping costs
+- Best price for a known product: Use get_best_price with an EAN → returns prices across all ${SHOP_COUNT} shops including shipping costs
 - Multiple products to buy together: Use search_product for each item to get EANs, then call optimize_cart with all EANs → this calculates the cheapest combination of shops factoring in shipping costs and free-shipping thresholds. This is the key feature of Bikefuchs.
 - Product URL from a shop: Use resolve_product to extract EAN and product info from a shop URL
 - Shop overview: Use get_shop_info for a list of supported shops and their shipping costs
@@ -109,7 +131,7 @@ function createServer() {
     "search_product",
     {
       title: "Search Bike Products",
-      description: "Search for bicycle parts, components, accessories, and cycling clothing across 7 German/Austrian bike shops (BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike) with ~120,000 products. Search by product name, brand, or model number. Returns real-time prices, stock availability, EAN barcodes, and direct purchase links sorted by price. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
+      description: "Search for bicycle parts, components, accessories, and cycling clothing by product name, brand, or model number. Full-text search over ~125,000 products; returns prices sorted cheapest-first with stock status, EAN barcodes, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. For a specific known product where you already have the EAN barcode, use get_best_price instead. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
       inputSchema: {
         q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -204,7 +226,7 @@ function createServer() {
     "get_best_price",
     {
       title: "Get Best Price by EAN",
-      description: "Look up a product by EAN barcode and find the best price across all 11 shops (BIKE24, BOC24, Fahrrad24, Rose Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, Bike-Discount, bike-components). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.",
+      description: `Look up a product by EAN barcode and find the best price across all ${SHOP_COUNT} shops (${ALL_SHOPS.join(', ')}). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.`,
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -647,7 +669,7 @@ function createServer() {
     "resolve_product",
     {
       title: "Resolve Product URL",
-      description: "Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: BIKE24 (bike24.de, bike24.at), BOC24 (boc24.de), Fahrrad24 (fahrrad24.de, velondo.at), Rose Bikes (rosebikes.de, rosebikes.at), fahrrad-teile.shop, Bike Mailorder (bike-mailorder.com, bike-mailorder.at), Maciag Offroad (maciag.de), Bike-Discount (bike-discount.de), bike-components (bike-components.de). Scraping shops (BIKE24, Bike-Discount, bike-components) may take up to 12 seconds on first load.",
+      description: `Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: ${RESOLVE_SHOP_DOMAINS.join(', ')}. Scraping shops (BIKE24, Bike-Discount, bike-components) may take up to 12 seconds on first load.`,
       inputSchema: {
         url: z.string().url().describe("Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
