@@ -121,7 +121,7 @@ IMPORTANT RULES:
 - Results contain affiliate links. Always pass these links to the user as provided.
 - Supported countries: Germany (DE) and Austria (AT).
 
-Workflow for cart optimization: When the user wants to optimize a cart, first use get_best_price for each product to ensure all prices are cached. Then call optimize_cart with all EANs. If optimize_cart returns missing_eans, call get_best_price for those EANs and retry optimize_cart.`;
+Workflow for cart optimization: When the user wants to optimize a cart, first call get_best_price for each product, then call optimize_cart with all EANs. If optimize_cart returns missing_eans, call get_best_price for those EANs and retry optimize_cart.`;
 
 function createServer() {
   const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: SERVER_INSTRUCTIONS });
@@ -137,7 +137,7 @@ function createServer() {
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
         in_stock: z.boolean().optional().default(true).describe("Only return in-stock products (default true)"),
         max_results: z.number().int().min(1).max(20).optional().default(10).describe("Max results (1–20, default 10)"),
-        shop: z.enum(["boc24", "fahrrad24", "rosebikes", "fahrradteile", "bmo", "maciag", "hibike"]).optional().describe("Restrict results to a single shop"),
+        shop: z.string().optional().describe("Restrict results to a single supported shop (by id or name)"),
         max_price: z.number().positive().optional().describe("Upper price bound in EUR (inclusive)"),
         category: z.string().optional().describe("Filter by merchant category (partial match, e.g. 'Fahrräder' or 'Bremsen')"),
       },
@@ -210,7 +210,7 @@ function createServer() {
             })),
             total_results: data.total ?? data.results.length,
             next_steps: [
-              { tool: "get_best_price", hint: "Compare prices across all 10 shops (search only covers feed shops)", eans: data.results.map(p => p.ean).filter((e): e is string => !!e) },
+              { tool: "get_best_price", hint: "Compare prices across all 10 shops", eans: data.results.map(p => p.ean).filter((e): e is string => !!e) },
               { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
             ],
           },
@@ -311,7 +311,7 @@ function createServer() {
     "optimize_cart",
     {
       title: "Optimize Shopping Cart",
-      description: "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE') Important: The optimizer uses only cached price data. If products are not found, first call get_best_price for each missing EAN to load prices into the cache, then call optimize_cart again.",
+      description: "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE') Important: For the most accurate result, call get_best_price for each EAN first, then call optimize_cart. If a product's price isn't available yet, call get_best_price for that EAN and retry.",
       inputSchema: {
         eans: z
           .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
@@ -341,7 +341,6 @@ function createServer() {
         savings_info: z.string().optional(),
         stale_cache_warning: z.object({
           eans_to_refresh: z.array(z.string()),
-          shops_missing: z.array(z.string()),
           suggestion: z.string(),
         }).optional(),
       },
@@ -392,8 +391,8 @@ function createServer() {
           md += `ℹ️ Folgende EANs sind in keinem unterstützten Shop verfügbar: ${data.not_available_eans.join(", ")}\n\n`;
         }
         if (data.stale_cache_warning) {
-          const { eans_to_refresh, shops_missing } = data.stale_cache_warning;
-          md += `⚠️ Note: Price data for ${shops_missing.join(", ")} was not available for EAN(s): ${eans_to_refresh.join(", ")}. For the most accurate result, call get_best_price for these EANs first, then call optimize_cart again: ${eans_to_refresh.join(", ")}\n\n`;
+          const { eans_to_refresh } = data.stale_cache_warning;
+          md += `⚠️  Note: Prices for some shops weren't available yet for EAN(s): ${eans_to_refresh.join(", ")}. For the most accurate result, call get_best_price for these EANs first, then call optimize_cart again: ${eans_to_refresh.join(", ")}\n\n`;
         }
 
         md += `### Optimal Shop Split\n`;
@@ -443,7 +442,9 @@ function createServer() {
               })),
             },
             savings_info: savingsInfo,
-            stale_cache_warning: data.stale_cache_warning,
+            stale_cache_warning: data.stale_cache_warning
+              ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
+              : undefined,
           },
         };
       } catch (err) {
@@ -625,7 +626,7 @@ function createServer() {
         if (!data.results || data.results.length === 0) {
           return {
             ...mcpText(
-              `No shops found carrying EAN ${ean} in ${country}. The product may not be in any supported shop's feed.${FOOTER}`
+              `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${FOOTER}`
             ),
             structuredContent: { ean, product_name: "Unknown", alternatives: [] },
           };
@@ -669,7 +670,7 @@ function createServer() {
     "resolve_product",
     {
       title: "Resolve Product URL",
-      description: `Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: ${RESOLVE_SHOP_DOMAINS.join(', ')}. Scraping shops (BIKE24, Bike-Discount, bike-components) may take up to 12 seconds on first load.`,
+      description: `Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: ${RESOLVE_SHOP_DOMAINS.join(', ')}. Some shops may take up to ~12 seconds on first lookup.`,
       inputSchema: {
         url: z.string().url().describe("Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
