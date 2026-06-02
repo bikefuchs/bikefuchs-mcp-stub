@@ -48,7 +48,7 @@ const SERVER_CARD = {
       name: "get_best_price",
       title: "Get Best Price",
       description:
-        "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all feed shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.",
+        "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 10 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.",
       inputSchema: {
         type: "object",
         properties: {
