@@ -124,7 +124,7 @@ IMPORTANT RULES:
 Workflow for cart optimization: When the user wants to optimize a cart, first use get_best_price for each product to ensure all prices are cached. Then call optimize_cart with all EANs. If optimize_cart returns missing_eans, call get_best_price for those EANs and retry optimize_cart.`;
 
 function createServer() {
-  const server = new McpServer({ name: "bikefuchs", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: SERVER_INSTRUCTIONS });
 
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.registerTool(
