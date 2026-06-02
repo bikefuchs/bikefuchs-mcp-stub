@@ -114,6 +114,7 @@ WORKFLOW GUIDE:
 - Product URL from a shop: Use resolve_product to extract EAN and product info from a shop URL
 - Shop overview: Use get_shop_info for a list of supported shops and their shipping costs
 - Shipping details: Use get_shipping_breakdown for exact shipping costs per shop and country
+- Same product cheaper elsewhere, or out of stock: Use find_alternatives_for_product with the EAN → returns every shop that carries it with prices and availability.
 
 IMPORTANT RULES:
 - Always use the tools to get real prices. Never guess or estimate prices from memory.
@@ -131,7 +132,7 @@ function createServer() {
     "search_product",
     {
       title: "Search Bike Products",
-      description: "Search for bicycle parts, components, accessories, and cycling clothing by product name, brand, or model number. Full-text search over ~125,000 products; returns prices sorted cheapest-first with stock status, EAN barcodes, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts including brands like Shimano, SRAM, Continental, Schwalbe, Magura, Bosch, Maxxis, and more. Supports German (DE) and Austrian (AT) markets with country-specific pricing. Use this when a user wants to find, compare, or buy bike parts at the best price. For a specific known product where you already have the EAN barcode, use get_best_price instead. Fahrrad Teile Preisvergleich. IMPORTANT: When a user wants to buy MULTIPLE products, collect the EAN from each search result, then call optimize_cart with all EANs to find the cheapest total cost including shipping across all shops. Do NOT calculate shipping manually — optimize_cart does this automatically.",
+      description: "Search for bicycle parts, components, accessories, and cycling clothing by name, brand, or model number. Returns matching products sorted cheapest-first, each with its price, stock status, EAN barcode, and a direct purchase link. Supports DE and AT pricing. If you already have a product's EAN, use get_best_price instead.",
       inputSchema: {
         q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -226,7 +227,7 @@ function createServer() {
     "get_best_price",
     {
       title: "Get Best Price by EAN",
-      description: `Look up a product by EAN barcode and find the best price across all ${SHOP_COUNT} shops (${ALL_SHOPS.join(', ')}). Returns prices from every shop that carries the product, sorted cheapest first, with stock status and direct purchase links. Use this when you already know the exact product EAN (e.g., from a previous search result) and want to compare prices across shops.`,
+      description: "Look up a single product by its EAN barcode and return the price at every shop that carries it, sorted cheapest-first, with stock status and direct purchase links.",
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -311,13 +312,13 @@ function createServer() {
     "optimize_cart",
     {
       title: "Optimize Shopping Cart",
-      description: "Optimize a shopping cart across multiple shops to find the absolute cheapest total cost including shipping. This is the FINAL STEP when a user wants to buy multiple bike parts. Takes an array of EAN barcodes and calculates the optimal shop split — which products to order from which shop — considering per-shop shipping costs, free-shipping thresholds, and product prices across all 10 shops. Use this whenever the user asks: 'where is this cheapest', 'optimize my cart', 'cheapest combination', 'best way to order', or has 2+ products to buy. NEVER calculate shipping costs manually — this tool does it automatically and finds the global optimum. Example: optimize_cart(eans: ['4550170327385', '4524667749493'], country: 'DE') Important: For the most accurate result, call get_best_price for each EAN first, then call optimize_cart. If a product's price isn't available yet, call get_best_price for that EAN and retry.",
+      description: "Find the cheapest way to buy multiple products together: computes the optimal split across shops — which items to order from which shop — accounting for each shop's shipping costs and free-shipping thresholds, and returns the lowest achievable total including shipping. Takes an array of EAN barcodes.",
       inputSchema: {
         eans: z
           .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
           .min(1)
           .max(20)
-          .describe("Array of EAN barcodes (8-14 digit numbers as strings). NOT URLs. Get EANs from search_product or get_best_price results. Example: ['4550170327385', '4524667749493']"),
+          .describe("Array of EAN barcodes (8–14 digit numbers as strings, e.g. '4524667749493'). NOT URLs."),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing and shipping (DE or AT, default DE)"),
       },
       outputSchema: {
@@ -458,7 +459,7 @@ function createServer() {
     "get_shop_info",
     {
       title: "Get Shop Overview",
-      description: "Get an overview of all supported bike shops in the Bikefuchs network, including shipping cost tiers, free-shipping thresholds, and supported countries (Germany and Austria). Bikefuchs is a bicycle parts price comparison service covering ~120,000 products from 10 shops. Use this to answer questions about which shops are available, what shipping costs apply, or what Bikefuchs can do. Fahrrad Preisvergleich Deutschland Österreich.",
+      description: "Return an overview of the supported shops, including their shipping cost tiers, free-shipping thresholds, and supported countries (DE and AT).",
       inputSchema: {
         country: z
           .enum(["DE", "AT"])
@@ -537,7 +538,7 @@ function createServer() {
     "get_shipping_breakdown",
     {
       title: "Get Shipping Cost",
-      description: "Get the exact shipping cost for a specific shop, country, and cart value. Shows all shipping tiers and how close the cart is to the next free-shipping threshold. Use this when a user asks about shipping costs for a specific shop or wants to know how much more they need to spend to get free shipping.",
+      description: "Return the exact shipping cost for a specific shop, country, and cart value, including all shipping tiers and how much more is needed to reach the next free-shipping threshold.",
       inputSchema: {
         shop: z.string().describe("Shop name or ID (e.g. 'rosebikes', 'boc24', 'bike24', 'fahrradteile', 'Rose Bikes')"),
         country: z.enum(["DE", "AT"]).describe("Country (DE or AT)"),
@@ -599,7 +600,7 @@ function createServer() {
     "find_alternatives_for_product",
     {
       title: "Find Alternative Shops",
-      description: "Discover which shops carry a specific product by EAN barcode, sorted by price. Use this when a user found a product at one shop and wants to know if it's available cheaper elsewhere, or when a product is out of stock and the user needs an alternative source. Returns all shops that carry this EAN with prices and availability.",
+      description: "Given a product's EAN barcode, return every shop that carries it with prices and availability, sorted cheapest-first.",
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
@@ -670,7 +671,7 @@ function createServer() {
     "resolve_product",
     {
       title: "Resolve Product URL",
-      description: `Resolve a bike shop product page URL into structured product data including the EAN barcode, price, stock status, and a purchase link. Use this when a user pastes a product URL from a supported shop and you need to extract the EAN (e.g. to then call get_best_price or optimize_cart). Supported shops: ${RESOLVE_SHOP_DOMAINS.join(', ')}. Some shops may take up to ~12 seconds on first lookup.`,
+      description: "Turn a product page URL from a supported shop into structured product data — EAN barcode, price, stock status, and a purchase link — so the EAN can then be used with get_best_price or optimize_cart.",
       inputSchema: {
         url: z.string().url().describe("Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
