@@ -312,7 +312,7 @@ function createServer() {
     "optimize_cart",
     {
       title: "Optimize Shopping Cart",
-      description: "Find the cheapest way to buy multiple products together: computes the optimal split across shops — which items to order from which shop — accounting for each shop's shipping costs and free-shipping thresholds, and returns the lowest achievable total including shipping. Takes an array of EAN barcodes.",
+      description: "Find the cheapest way to buy multiple products together: computes the optimal split across shops — which items to order from which shop — accounting for each shop's shipping costs and free-shipping thresholds, and returns the lowest achievable total including shipping. Takes an array of EAN barcodes. For accurate results, call get_best_price for each EAN first, then call optimize_cart.",
       inputSchema: {
         eans: z
           .array(z.string().regex(/^\d{8,14}$/, "Must be a numeric EAN (8–14 digits)"))
