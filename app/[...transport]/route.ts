@@ -237,6 +237,7 @@ function createServer() {
       inputSchema: {
         ean: z.string().regex(/^\d{8,14}$/).describe("EAN barcode (8–14 digits, e.g. '4524667749493')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
+        reference_shop: z.string().optional().describe("Shop id or display name to compare against. When set, the response states how much cheaper the cheapest shop is vs. this shop."),
       },
       outputSchema: {
         ean: z.string(),
@@ -256,11 +257,16 @@ function createServer() {
           hint: z.string(),
           eans: z.array(z.string()).optional(),
         }).optional(),
-        tell_user: z.string().optional(),
+        reference_comparison: z.object({
+          reference_shop: z.string(),
+          reference_price: z.number(),
+          saving: z.number(),
+          saving_percent: z.number().optional(),
+        }).optional(),
       },
       annotations: TOOL_HINTS,
     },
-    async ({ ean, country }) => {
+    async ({ ean, country, reference_shop }) => {
       trackMcpEvent("MCP Best Price", { ean });
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
@@ -289,12 +295,32 @@ function createServer() {
           return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}`;
         });
 
-        const cheapestAffiliateUrl = buildGoUrl(data.cheapest!.shop_id, ean, 'get_best_price');
-        const tell_user = `Der günstigste Preis für ${productName} liegt aktuell bei ${formatEuro(data.cheapest!.price)} bei ${data.cheapest!.shop} (zzgl. Versand). Direkt zum Angebot: ${cheapestAffiliateUrl} — Kann Affiliate-Links enthalten.`;
+        const refEntry = reference_shop
+          ? data.results.find(r => r.shop_id === reference_shop || r.shop.toLowerCase() === reference_shop.toLowerCase())
+          : undefined;
+
+        let referenceLine = '';
+        let referenceComparison: { reference_shop: string; reference_price: number; saving: number; saving_percent?: number } | undefined;
+        if (refEntry) {
+          if (refEntry.shop_id !== data.cheapest!.shop_id) {
+            const saving = refEntry.price - data.cheapest!.price;
+            const savingPct = (saving / refEntry.price) * 100;
+            const savingPctStr = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(savingPct) + ' %';
+            referenceLine = `\n\n**${refEntry.shop}: ${formatEuro(refEntry.price)} — günstiger bei ${data.cheapest!.shop}: ${formatEuro(data.cheapest!.price)} (${formatEuro(saving)} / ${savingPctStr} günstiger).**`;
+            referenceComparison = {
+              reference_shop: refEntry.shop,
+              reference_price: refEntry.price,
+              saving,
+              saving_percent: Math.round(savingPct * 10) / 10,
+            };
+          } else {
+            referenceLine = `\n\n**${refEntry.shop} ist bereits der günstigste Shop für dieses Produkt.**`;
+          }
+        }
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**${referenceLine}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
           ),
           structuredContent: {
             ean,
@@ -309,7 +335,7 @@ function createServer() {
             cheapest_shop: data.cheapest!.shop,
             cheapest_price: data.cheapest!.price,
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
-            tell_user,
+            reference_comparison: referenceComparison,
           },
         };
       } catch (err) {
@@ -355,7 +381,6 @@ function createServer() {
           eans_to_refresh: z.array(z.string()),
           suggestion: z.string(),
         }).optional(),
-        tell_user: z.string().optional(),
       },
       annotations: TOOL_HINTS,
     },
@@ -446,18 +471,6 @@ function createServer() {
           })),
         }));
 
-        let tell_user: string | undefined;
-        if (!data.stale_cache_warning) {
-          const shopLines = shops_used.map(s => {
-            const itemLines = s.items.map(item => `  - ${item.name}: ${item.affiliate_url}`).join('\n');
-            return `${s.shop} — Artikel: ${formatEuro(s.subtotal)}, Versand: ${formatEuro(s.shipping)}\n${itemLines}`;
-          }).join('\n\n');
-          const savingsLine = result.savings !== null && result.savings > 0
-            ? `\n\nDu sparst ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` (${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(result.savingsPercent)} %)` : ''} gegenüber dem günstigsten Einzelshop.`
-            : '';
-          tell_user = `Günstigste Kombination: insgesamt ${formatEuro(result.totalCost)} inkl. Versand.\n\n${shopLines}${savingsLine}\n\nKann Affiliate-Links enthalten.`;
-        }
-
         return {
           ...mcpText(md + "\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products." + FOOTER),
           structuredContent: {
@@ -472,7 +485,6 @@ function createServer() {
             stale_cache_warning: data.stale_cache_warning
               ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
               : undefined,
-            tell_user,
           },
         };
       } catch (err) {
@@ -733,7 +745,7 @@ function createServer() {
         md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **€${data.price.toFixed(2)}** ${stockIcon}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
-          md += `💡 Use this EAN with get_best_price to compare prices across all shops, or collect EANs and call optimize_cart to minimize your total cart cost.`;
+          md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${data.shop}.`;
         } else {
           md += `⚠️ No EAN found for this product — price comparison may not be available.`;
         }
