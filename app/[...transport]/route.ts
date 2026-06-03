@@ -451,7 +451,7 @@ function createServer() {
             return `${s.shop} — Artikel: ${formatEuro(s.subtotal)}, Versand: ${formatEuro(s.shipping)}\n${itemLines}`;
           }).join('\n\n');
           const savingsLine = result.savings !== null && result.savings > 0
-            ? `\n\nDu sparst ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` (${result.savingsPercent} %)` : ''} gegenüber dem günstigsten Einzelshop.`
+            ? `\n\nDu sparst ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` (${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(result.savingsPercent)} %)` : ''} gegenüber dem günstigsten Einzelshop.`
             : '';
           tell_user = `Günstigste Kombination: insgesamt ${formatEuro(result.totalCost)} inkl. Versand.\n\n${shopLines}${savingsLine}\n\nKann Affiliate-Links enthalten.`;
         }
