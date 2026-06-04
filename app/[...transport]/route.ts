@@ -464,6 +464,14 @@ function createServer() {
         }
         md += "\n";
 
+        // Single-shop convenience alternative (B-150b2). Server already gated it to ≤20%
+        // markup + affiliate-capable shop, else null — so this is a dumb "show if present".
+        if (result.singleShopOption) {
+          const sso = result.singleShopOption;
+          const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – €${sso.grandTotal.toFixed(2)} (nur +${deltaPercent}% ggü. Optimum, dafür ein Paket)\n`;
+        }
+
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
         for (const order of result.orders) {
           for (const item of order.products) {
@@ -873,6 +881,9 @@ interface OptimizationResult {
   savings: number | null;
   savingsPercent: number | null;
   baselineType?: 'cheapest_per_item' | 'source_shops';
+  // Cheapest single shop carrying all items (B-150). Already gated server-side to
+  // ≤20% markup AND affiliate-capable shop only (B-150b1.5), else null — render dumb.
+  singleShopOption?: { shop: string; productsTotal: number; shipping: number; grandTotal: number } | null;
 }
 
 interface OptimizeFromEansResult {
