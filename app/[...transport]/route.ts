@@ -411,6 +411,19 @@ function createServer() {
               FOOTER
             );
           }
+          if (data.error === 'stale_prices') {
+            const toRefresh = data.eans_to_refresh?.length ? data.eans_to_refresh : eans;
+            const callList = toRefresh.map((e: string) => `\`get_best_price(ean="${e}")\``).join('\n');
+            return mcpError(
+              `Some prices for your items need to be refreshed before I can calculate the cheapest combination. ` +
+              `Please refresh them first by calling get_best_price for each of these items, ` +
+              `then call optimize_cart again with the complete EAN list:\n\n${callList}\n\n` +
+              `Important: do this refresh only ONCE. If optimize_cart still reports this after you have already ` +
+              `refreshed these items, do NOT repeat the cycle — instead tell the user that prices for ` +
+              `these items are not available right now and present the best result you already have.` +
+              FOOTER
+            );
+          }
           let msg = `Could not optimize cart: ${data.error ?? "No shops found for any of the provided EANs."}`;
           if (data.eans_skipped?.length) {
             msg += `\n\nSkipped EANs (no shops found): ${data.eans_skipped.join(", ")}`;
@@ -867,6 +880,7 @@ interface OptimizeFromEansResult {
   result: OptimizationResult | null;
   error?: string;
   missing_eans?: string[];
+  eans_to_refresh?: string[];
   message?: string;
   hint?: string;
   stale_cache_warning?: {
