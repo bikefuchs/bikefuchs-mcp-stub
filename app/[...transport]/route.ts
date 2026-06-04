@@ -104,6 +104,12 @@ function formatEuro(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
 }
 
+// Customer-facing percentage in German style: comma decimal + space before %.
+// Formats the SAME value (no extra multiply/round) — only swaps the decimal point.
+function formatPercent(value: number): string {
+  return `${String(value).replace('.', ',')} %`;
+}
+
 const TOOL_HINTS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -460,7 +466,7 @@ function createServer() {
 
         md += `\n**Total cost: ${formatEuro(result.totalCost)}** (incl. ${formatEuro(result.totalShipping)} shipping)`;
         if (result.savings !== null && result.savings > 0) {
-          md += ` *(saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` / ${result.savingsPercent}%` : ""} ${baselineLabel})*`;
+          md += ` *(saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` / ${formatPercent(result.savingsPercent)}` : ""} ${baselineLabel})*`;
         }
         md += "\n";
 
@@ -469,7 +475,7 @@ function createServer() {
         if (result.singleShopOption) {
           const sso = result.singleShopOption;
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (nur +${deltaPercent}% ggü. Optimum, dafür ein Paket)\n`;
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (nur +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
         }
 
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
@@ -481,7 +487,7 @@ function createServer() {
 
         const savingsInfo =
           result.savings !== null && result.savings > 0
-            ? `Saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` (${result.savingsPercent}%)` : ""} ${baselineLabel}`
+            ? `Saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` (${formatPercent(result.savingsPercent)})` : ""} ${baselineLabel}`
             : undefined;
 
         const shops_used = result.orders.map(order => ({
@@ -575,7 +581,7 @@ function createServer() {
             const at = countries["AT"];
             const shippingLabel = (info: ShippingCountryInfo) =>
               info.free_shipping_threshold !== null
-                ? `Free from €${info.free_shipping_threshold}`
+                ? `Free from ${formatEuro(info.free_shipping_threshold)}`
                 : "No free shipping";
             return {
               name: shopName,
