@@ -104,6 +104,12 @@ function formatEuro(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
 }
 
+// Customer-facing percentage in German style: comma decimal + space before %.
+// Formats the SAME value (no extra multiply/round) — only swaps the decimal point.
+function formatPercent(value: number): string {
+  return `${String(value).replace('.', ',')} %`;
+}
+
 const TOOL_HINTS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -195,7 +201,7 @@ function createServer() {
         const lines = data.results.map((p, i) => {
           const stockIcon = p.in_stock ? "✅" : "❌";
           const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product');
-          return `${i + 1}. [${p.product_name} — ${p.shop}](${link}) — **€${p.price.toFixed(2)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`;
+          return `${i + 1}. [${p.product_name} — ${p.shop}](${link}) — **${formatEuro(p.price)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`;
         });
 
         return {
@@ -292,7 +298,7 @@ function createServer() {
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'get_best_price');
-          return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}`;
+          return `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **${formatEuro(r.price)}** ${stockIcon}`;
         });
 
         const refEntry = reference_shop
@@ -320,7 +326,7 @@ function createServer() {
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: €${data.cheapest!.price.toFixed(2)} at ${data.cheapest!.shop}**${referenceLine}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: ${formatEuro(data.cheapest!.price)} at ${data.cheapest!.shop}**${referenceLine}\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
           ),
           structuredContent: {
             ean,
@@ -448,9 +454,9 @@ function createServer() {
 
         md += `### Optimal Shop Split\n`;
         for (const order of result.orders) {
-          md += `\n**${order.shopName}** — products €${order.subtotal.toFixed(2)} + shipping €${order.shippingCost.toFixed(2)} = €${order.total.toFixed(2)}\n`;
+          md += `\n**${order.shopName}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
           for (const item of order.products) {
-            md += `  - [${item.productName} — ${order.shopName}](${buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart')}) — **€${item.price.toFixed(2)}**\n`;
+            md += `  - [${item.productName} — ${order.shopName}](${buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart')}) — **${formatEuro(item.price)}**\n`;
           }
         }
 
@@ -458,9 +464,9 @@ function createServer() {
           ? "vs. your selected shops"
           : "vs. buying each item at its cheapest individual shop";
 
-        md += `\n**Total cost: €${result.totalCost.toFixed(2)}** (incl. €${result.totalShipping.toFixed(2)} shipping)`;
+        md += `\n**Total cost: ${formatEuro(result.totalCost)}** (incl. ${formatEuro(result.totalShipping)} shipping)`;
         if (result.savings !== null && result.savings > 0) {
-          md += ` *(saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` / ${result.savingsPercent}%` : ""} ${baselineLabel})*`;
+          md += ` *(saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` / ${formatPercent(result.savingsPercent)}` : ""} ${baselineLabel})*`;
         }
         md += "\n";
 
@@ -469,7 +475,7 @@ function createServer() {
         if (result.singleShopOption) {
           const sso = result.singleShopOption;
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – €${sso.grandTotal.toFixed(2)} (nur +${deltaPercent}% ggü. Optimum, dafür ein Paket)\n`;
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (nur +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
         }
 
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
@@ -481,7 +487,7 @@ function createServer() {
 
         const savingsInfo =
           result.savings !== null && result.savings > 0
-            ? `Saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` (${result.savingsPercent}%)` : ""} ${baselineLabel}`
+            ? `Saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` (${formatPercent(result.savingsPercent)})` : ""} ${baselineLabel}`
             : undefined;
 
         const shops_used = result.orders.map(order => ({
@@ -558,10 +564,10 @@ function createServer() {
             if (country && c !== country) continue;
             const freeAt =
               info.free_shipping_threshold !== null
-                ? `Free from €${info.free_shipping_threshold}`
+                ? `Free from ${formatEuro(info.free_shipping_threshold)}`
                 : "No free shipping";
             const tiers = info.tiers
-              .map((t) => `€${t.min_order_value}+: €${t.shipping_cost}`)
+              .map((t) => `${formatEuro(t.min_order_value)}+: ${formatEuro(t.shipping_cost)}`)
               .join(" | ");
             md += `- **${c}**: ${freeAt} — Tiers: ${tiers}\n`;
           }
@@ -575,7 +581,7 @@ function createServer() {
             const at = countries["AT"];
             const shippingLabel = (info: ShippingCountryInfo) =>
               info.free_shipping_threshold !== null
-                ? `Free from €${info.free_shipping_threshold}`
+                ? `Free from ${formatEuro(info.free_shipping_threshold)}`
                 : "No free shipping";
             return {
               name: shopName,
@@ -625,21 +631,21 @@ function createServer() {
         const params = new URLSearchParams({ shop, country, cart_value: String(cart_value) });
         const data = await apiJson<ShippingResult>(`/api/shops/shipping?${params}`);
 
-        const total = (data.cart_value + data.shipping_cost).toFixed(2);
+        const total = data.cart_value + data.shipping_cost;
         let md = `## Shipping: ${data.shop} (${country})\n\n`;
-        md += `- Cart value: €${data.cart_value.toFixed(2)}\n`;
-        md += `- Shipping: €${data.shipping_cost.toFixed(2)}${data.is_free ? " **(FREE)**" : ""}\n`;
-        md += `- **Total: €${total}**\n`;
+        md += `- Cart value: ${formatEuro(data.cart_value)}\n`;
+        md += `- Shipping: ${formatEuro(data.shipping_cost)}${data.is_free ? " **(FREE)**" : ""}\n`;
+        md += `- **Total: ${formatEuro(total)}**\n`;
 
         if (data.free_shipping_threshold !== null && !data.is_free) {
-          const gap = (data.free_shipping_threshold - data.cart_value).toFixed(2);
-          md += `\n💡 Add €${gap} more to reach free shipping (threshold: €${data.free_shipping_threshold})\n`;
+          const gap = data.free_shipping_threshold - data.cart_value;
+          md += `\n💡 Add ${formatEuro(gap)} more to reach free shipping (threshold: ${formatEuro(data.free_shipping_threshold)})\n`;
         }
 
         md += `\n**Shipping tiers (${country}):**\n`;
         for (const tier of data.tiers) {
           const active = data.cart_value >= tier.min_order_value ? " ◀ current" : "";
-          md += `- From €${tier.min_order_value}: €${tier.shipping_cost}${active}\n`;
+          md += `- From ${formatEuro(tier.min_order_value)}: ${formatEuro(tier.shipping_cost)}${active}\n`;
         }
 
         return {
@@ -705,7 +711,7 @@ function createServer() {
           const stockIcon = r.in_stock ? "✅" : "❌";
           const trophy = i === 0 ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'find_alternatives');
-          md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **€${r.price.toFixed(2)}** ${stockIcon}\n`;
+          md += `${i + 1}. [${productName} — ${r.shop}](${link})${trophy} — **${formatEuro(r.price)}** ${stockIcon}\n`;
         }
 
         md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.`;
@@ -767,7 +773,7 @@ function createServer() {
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
         const link = data.ean ? buildGoUrl(data.shop_id, data.ean, 'resolve_product') : url;
         let md = `## Resolved Product\n\n`;
-        md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **€${data.price.toFixed(2)}** ${stockIcon}\n\n`;
+        md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **${formatEuro(data.price)}** ${stockIcon}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
           md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${data.shop}.`;
