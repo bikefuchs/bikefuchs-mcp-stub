@@ -454,9 +454,13 @@ function createServer() {
           }
         }
 
+        const baselineLabel = result.baselineType === 'source_shops'
+          ? "vs. your selected shops"
+          : "vs. buying each item at its cheapest individual shop";
+
         md += `\n**Total cost: €${result.totalCost.toFixed(2)}** (incl. €${result.totalShipping.toFixed(2)} shipping)`;
         if (result.savings !== null && result.savings > 0) {
-          md += ` *(saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` / ${result.savingsPercent}%` : ""} vs. single shop)*`;
+          md += ` *(saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` / ${result.savingsPercent}%` : ""} ${baselineLabel})*`;
         }
         md += "\n";
 
@@ -469,7 +473,7 @@ function createServer() {
 
         const savingsInfo =
           result.savings !== null && result.savings > 0
-            ? `Saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` (${result.savingsPercent}%)` : ""} vs. single shop`
+            ? `Saves €${result.savings.toFixed(2)}${result.savingsPercent !== null ? ` (${result.savingsPercent}%)` : ""} ${baselineLabel}`
             : undefined;
 
         const shops_used = result.orders.map(order => ({
@@ -868,6 +872,7 @@ interface OptimizationResult {
   totalShipping: number;
   savings: number | null;
   savingsPercent: number | null;
+  baselineType?: 'cheapest_per_item' | 'source_shops';
 }
 
 interface OptimizeFromEansResult {
