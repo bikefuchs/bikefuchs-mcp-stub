@@ -170,7 +170,6 @@ function createServer({ feedOnly }: { feedOnly: boolean }) {
           shop: z.string(),
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy this product. Always show this URL to the user."),
-          product_url: z.string().optional(),
         })),
         total_results: z.number(),
         next_steps: z.array(z.object({
@@ -233,7 +232,6 @@ function createServer({ feedOnly }: { feedOnly: boolean }) {
               shop: p.shop,
               availability: p.in_stock ? "in_stock" : "out_of_stock",
               affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product'),
-              product_url: p.product_url ?? undefined,
             })),
             total_results: total,
             next_steps: [
@@ -818,9 +816,12 @@ function createServer({ feedOnly }: { feedOnly: boolean }) {
         }
 
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
-        const link = data.ean ? buildGoUrl(data.shop_id, data.ean, 'resolve_product') : url;
+        // Only ever emit a /go/ affiliate link — never the raw shop URL. When no
+        // shop_id (link empty), render the title without a hyperlink.
+        const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product');
+        const title = `${data.product_name ?? "Product"} — ${data.shop}`;
         let md = `## Resolved Product\n\n`;
-        md += `[${data.product_name ?? "Product"} — ${data.shop}](${link}) — **${formatEuro(data.price)}** ${stockIcon}\n\n`;
+        md += `${link ? `[${title}](${link})` : title} — **${formatEuro(data.price)}** ${stockIcon}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
           md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${data.shop}.`;
@@ -835,7 +836,7 @@ function createServer({ feedOnly }: { feedOnly: boolean }) {
             ean: data.ean ?? undefined,
             price: data.price,
             shop: data.shop,
-            affiliate_url: data.ean ? buildGoUrl(data.shop_id, data.ean, 'resolve_product') : data.purchase_url || data.product_url || undefined,
+            affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product') || undefined,
           },
         };
       } catch (err) {
