@@ -15,9 +15,22 @@ export const CARD_HEADERS = {
 };
 
 export function buildServerCard(feedOnly: boolean) {
+  // Feed-only card leads with the optimization sentence (we run the optimization
+  // service), then the comparison sentence — aligned with OpenAI's stance against
+  // pass-through/aggregator apps. The default 10-shop string is unchanged.
   const description = feedOnly
-    ? "Compare prices for bicycle parts, components, accessories, and cycling clothing across 7 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, and HiBike. Supports DE and AT markets."
+    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 7 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, and HiBike. Supports DE and AT markets."
     : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 10 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, BIKE24, Bike-Discount, and bike-components. Supports DE and AT markets.";
+
+  // Feed-only card leads its title with optimization; default title unchanged.
+  const title = feedOnly
+    ? "Bikefuchs — Warenkorb-Optimierung für Fahrradteile"
+    : "Bikefuchs — Fahrradteile Preisvergleich";
+
+  // Feed-only card documents the ChatGPT-app page; default points at /mcp.
+  const documentationUrl = feedOnly
+    ? "https://bikefuchs.com/mcp-openai"
+    : "https://bikefuchs.com/mcp";
 
   const endpoint = feedOnly
     ? "https://mcp.bikefuchs.com/mcp/openai"
@@ -45,12 +58,12 @@ export function buildServerCard(feedOnly: boolean) {
     protocolVersion: "2025-06-18",
     serverInfo: {
       name: "bikefuchs",
-      title: "Bikefuchs — Fahrradteile Preisvergleich",
+      title,
       version: "2.5.0",
     },
     description,
     iconUrl: "https://bikefuchs.com/favicon.ico",
-    documentationUrl: "https://bikefuchs.com/mcp",
+    documentationUrl,
     transport: {
       type: "streamable-http",
       endpoint,
