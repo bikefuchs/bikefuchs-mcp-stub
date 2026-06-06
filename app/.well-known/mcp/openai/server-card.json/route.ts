@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { buildServerCard, CARD_HEADERS } from "../../../lib/serverCard";
+import { buildServerCard, CARD_HEADERS } from "../../../../lib/serverCard";
 
-// Default 10-shop server card for the /mcp endpoint. Output is unchanged.
-const SERVER_CARD = buildServerCard(false);
+// Feed-only 7-shop server card for the /mcp/openai endpoint.
+// Served at /.well-known/mcp/openai/server-card.json. Its transport.endpoint
+// points at https://mcp.bikefuchs.com/mcp/openai. The 3 scraping shops are
+// never named or counted here.
+const SERVER_CARD = buildServerCard(true);
 
 export function GET() {
   return NextResponse.json(SERVER_CARD, { headers: CARD_HEADERS });
