@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { trackMcpEvent } from "./tracking";
+import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimit";
 
 // Use www subdomain directly — bikefuchs.com (apex) 307-redirects to www
 const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
@@ -76,6 +77,10 @@ async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_T
   try {
     const headers = new Headers(options?.headers);
     headers.set("Accept", "application/json");
+    // Identify trusted MCP→main-app traffic so the main app's rate-limiter
+    // (Chokepoint 1) skips it (already limited here at Chokepoint 2).
+    const mcpSecret = process.env.MCP_INTERNAL_SECRET;
+    if (mcpSecret) headers.set("x-bikefuchs-mcp", mcpSecret);
     return await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal });
   } finally {
     clearTimeout(timer);
@@ -855,7 +860,23 @@ export async function handle(req: NextRequest, { feedOnly }: { feedOnly: boolean
   });
   const server = createServer({ feedOnly });
   await server.connect(transport);
-  return transport.handleRequest(req);
+  const res = await transport.handleRequest(req);
+
+  // Anti-harvesting coverage recording (Chokepoint 2): record the EANs this
+  // response served into the source's 24h HLL. The middleware set the source
+  // header on allowed requests; allowlisted-AI / fail-open requests have none.
+  const source = req.headers.get(RL_SOURCE_HEADER);
+  if (source) {
+    try {
+      const json = await res.clone().json();
+      const eans = extractEansFromMcp((json as { result?: { structuredContent?: unknown } })?.result?.structuredContent);
+      if (eans.length) await recordCoverage(source, eans);
+    } catch {
+      /* non-JSON (e.g. SSE/GET) or no structuredContent — nothing to record */
+    }
+  }
+
+  return res;
 }
 
 // ── Type definitions ──────────────────────────────────────────────────────────
