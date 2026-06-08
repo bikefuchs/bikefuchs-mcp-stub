@@ -251,11 +251,27 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           affiliate_url: z.string().describe("Direct link to buy this product. Always show this URL to the user."),
         })),
         total_results: z.number(),
-        next_steps: z.array(z.object({
-          tool: z.string(),
-          hint: z.string(),
-          eans: z.array(z.string()).optional(),
-        })).optional(),
+        // B-163/B-162 rollout: openai profile gets a user-CHOICE next_steps shape
+        // (no EAN array) + disclosure + tell_user. claude keeps the exact main
+        // next_steps schema (tool/hint/eans?) → byte-identical.
+        ...(renderProfile === 'openai'
+          ? {
+              next_steps: z.array(z.object({
+                type: z.string(),
+                tool: z.string(),
+                hint: z.string(),
+                note: z.string().optional(),
+              })).optional(),
+              disclosure: z.string(),
+              tell_user: z.string(),
+            }
+          : {
+              next_steps: z.array(z.object({
+                tool: z.string(),
+                hint: z.string(),
+                eans: z.array(z.string()).optional(),
+              })).optional(),
+            }),
       },
       annotations: TOOL_HINTS,
     },
@@ -289,7 +305,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (results.length === 0) {
           return {
             ...mcpText(`No products found for "${q}" in ${country}.${FOOTER}`),
-            structuredContent: { query: q, results: [], total_results: 0 },
+            structuredContent: {
+              query: q,
+              results: [],
+              total_results: 0,
+              ...(renderProfile === 'openai'
+                ? { disclosure: FOOTER, tell_user: TELL_USER_SEARCH }
+                : {}),
+            },
           };
         }
 
@@ -324,10 +347,24 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product'),
             })),
             total_results: total,
-            next_steps: [
-              { tool: "get_best_price", hint: `Compare prices across all ${shopCount} shops`, eans: results.map(p => p.ean).filter((e): e is string => !!e) },
-              { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
-            ],
+            ...(renderProfile === 'openai'
+              ? {
+                  // B-163 redesign: user-choice next_steps, no EAN array. get_best_price
+                  // takes exactly one EAN per call, so we offer it as a choice instead of
+                  // pre-binding 8/20 EANs to a single call.
+                  next_steps: [
+                    { type: "refine", tool: "search_product", hint: "Suche mit mehr Details verfeinern (Marke, Modell, Maße)" },
+                    { type: "price_check", tool: "get_best_price", hint: "Preis eines gewählten Treffers über alle Shops vergleichen", note: "genau eine EAN pro Aufruf" },
+                  ],
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_SEARCH,
+                }
+              : {
+                  next_steps: [
+                    { tool: "get_best_price", hint: `Compare prices across all ${shopCount} shops`, eans: results.map(p => p.ean).filter((e): e is string => !!e) },
+                    { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
+                  ],
+                }),
           },
         };
       } catch (err) {
