@@ -52,6 +52,14 @@ const PILOT_TELL_USER_OPTIMIZE_CART =
 // path keeps the raw upstream numbers untouched.
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+// B-164a: the single-shop invitation only calls the premium "nur" ("only") when
+// it is genuinely small. Since the 20% show-window cap was removed, the option
+// can surface at a high premium where "nur +88 %" reads absurd — so the word is
+// dropped above this threshold (percent). Same value + behaviour on both profiles.
+const SINGLE_SHOP_NUR_THRESHOLD = 20;
+const singleShopNur = (deltaPercent: number): string =>
+  deltaPercent <= SINGLE_SHOP_NUR_THRESHOLD ? 'nur ' : '';
+
 // ── Render profile ───────────────────────────────────────────────────────────
 // Per-endpoint link rendering. 'claude' (default, /mcp) is byte-for-byte the
 // historical behavior: products are markdown links [name — shop](go-url), which
@@ -680,7 +688,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (result.singleShopOption) {
           const sso = result.singleShopOption;
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (nur +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
           const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
           for (const item of sso.items ?? []) {
             const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item');
@@ -739,7 +747,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 shop: sso.shop,
                 total,
                 delta_percent: deltaPercent,
-                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – nur +${formatPercent(deltaPercent)} teurer.`,
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} teurer.`,
               };
             })()
           : undefined;
