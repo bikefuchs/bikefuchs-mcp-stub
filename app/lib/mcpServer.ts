@@ -18,8 +18,20 @@ const DISCLOSURE_DIRECTIVE =
 // programmatic ChatGPT channel (which reads structuredContent, not content) can
 // surface affiliate disclosure and "what to tell the user" reliably. These are
 // emitted ONLY when renderProfile === 'openai'; the claude path never sees them.
-const PILOT_DISCLOSURE =
-  "Kann Affiliate-Links enthalten – Bikefuchs erhält ggf. eine Provision, ohne Mehrkosten für dich.";
+// B-162 rollout: the `disclosure` structuredContent field uses the FOOTER
+// constant verbatim (single source of truth) on every tool — this REPLACES the
+// pilot's interim wording on get_best_price/optimize_cart. `tell_user` is the
+// per-tool model-facing instruction; each one ends with the `disclosure` text.
+const TELL_USER_SEARCH =
+  "Present the found products with their price, shop, and clickable bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. Do not auto-chain — offer the user the two next_steps as a choice.";
+const TELL_USER_ALTERNATIVES =
+  "Present each alternative with price, shop, and its bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text.";
+const TELL_USER_RESOLVE =
+  "Confirm the resolved product, then offer the price check via the next_step. Show the bikefuchs.com/go/ link. End with the `disclosure` text.";
+const TELL_USER_SHOP_INFO =
+  "Present the compared shops with their shipping cost tiers and free-shipping thresholds. For an exact figure, point to get_shipping_breakdown (next_step). End with the `disclosure` text.";
+const TELL_USER_SHIPPING =
+  "Present the shipping cost for the given cart value, the free-shipping threshold and any gap. End with the `disclosure` text.";
 const PILOT_TELL_USER_BEST_PRICE =
   "Show the cheapest shop with its price and clickable purchase link, then the other shops with price and link. Always surface every bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text.";
 const PILOT_TELL_USER_OPTIMIZE_CART =
@@ -391,7 +403,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               cheapest_shop: "",
               cheapest_price: 0,
               ...(renderProfile === 'openai'
-                ? { disclosure: PILOT_DISCLOSURE, tell_user: PILOT_TELL_USER_BEST_PRICE }
+                ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
                 : {}),
             },
           };
@@ -454,7 +466,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
-              ? { disclosure: PILOT_DISCLOSURE, tell_user: PILOT_TELL_USER_BEST_PRICE }
+              ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
               : {}),
           },
         };
@@ -677,7 +689,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
-              disclosure: PILOT_DISCLOSURE,
+              disclosure: FOOTER,
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
               savings: result.savings !== null
                 ? {
@@ -740,6 +752,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           free_shipping_threshold_de: z.number().optional(),
           free_shipping_threshold_at: z.number().optional(),
         })),
+        // B-162 rollout: openai profile only. Empty spread on claude → schema
+        // byte-identical to main.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({ tool: z.string(), hint: z.string() }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -793,7 +814,16 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(md + FOOTER),
-          structuredContent: { shops: structuredShops },
+          structuredContent: {
+            shops: structuredShops,
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_SHOP_INFO,
+                  next_step: { tool: "get_shipping_breakdown", hint: "Exakte Versandkosten für einen Shop und Warenwert" },
+                }
+              : {}),
+          },
         };
       } catch (err) {
         return mcpError(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -821,6 +851,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         shipping_cost: z.number(),
         free_shipping_threshold: z.number().optional(),
         currency: z.string(),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? { disclosure: z.string(), tell_user: z.string() }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -861,6 +895,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             shipping_cost: data.shipping_cost,
             free_shipping_threshold: data.free_shipping_threshold ?? undefined,
             currency: "EUR",
+            ...(renderProfile === 'openai'
+              ? { disclosure: FOOTER, tell_user: TELL_USER_SHIPPING }
+              : {}),
           },
         };
       } catch (err) {
@@ -889,6 +926,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop."),
         })),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({ tool: z.string(), hint: z.string(), eans: z.array(z.string()).optional() }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -908,7 +953,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ...mcpText(
               `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${FOOTER}`
             ),
-            structuredContent: { ean, product_name: "Unknown", alternatives: [] },
+            structuredContent: {
+              ean,
+              product_name: "Unknown",
+              alternatives: [],
+              ...(renderProfile === 'openai'
+                ? { disclosure: FOOTER, tell_user: TELL_USER_ALTERNATIVES }
+                : {}),
+            },
           };
         }
 
@@ -943,6 +995,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               availability: r.in_stock ? "in_stock" : "out_of_stock",
               affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
             })),
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_ALTERNATIVES,
+                  next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
+                }
+              : {}),
           },
         };
       } catch (err) {
@@ -970,6 +1029,19 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         price: z.number().optional(),
         shop: z.string(),
         affiliate_url: z.string().optional().describe("Affiliate link for this product."),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({
+                tool: z.string(),
+                hint: z.string(),
+                ean: z.string().optional(),
+                reference_shop: z.string().optional(),
+              }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -1018,6 +1090,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             price: data.price,
             shop: data.shop,
             affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product') || undefined,
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_RESOLVE,
+                  ...(data.ean
+                    ? { next_step: { tool: "get_best_price", hint: "Preis über alle Shops vergleichen und Ersparnis ggü. diesem Shop zeigen", ean: data.ean, reference_shop: data.shop_id } }
+                    : {}),
+                }
+              : {}),
           },
         };
       } catch (err) {
