@@ -18,8 +18,20 @@ const DISCLOSURE_DIRECTIVE =
 // programmatic ChatGPT channel (which reads structuredContent, not content) can
 // surface affiliate disclosure and "what to tell the user" reliably. These are
 // emitted ONLY when renderProfile === 'openai'; the claude path never sees them.
-const PILOT_DISCLOSURE =
-  "Kann Affiliate-Links enthalten – Bikefuchs erhält ggf. eine Provision, ohne Mehrkosten für dich.";
+// B-162 rollout: the `disclosure` structuredContent field uses the FOOTER
+// constant verbatim (single source of truth) on every tool — this REPLACES the
+// pilot's interim wording on get_best_price/optimize_cart. `tell_user` is the
+// per-tool model-facing instruction; each one ends with the `disclosure` text.
+const TELL_USER_SEARCH =
+  "Present the found products with their price, shop, and clickable bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. Do not auto-chain — offer the user the two next_steps as a choice.";
+const TELL_USER_ALTERNATIVES =
+  "Present each alternative with price, shop, and its bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text.";
+const TELL_USER_RESOLVE =
+  "Confirm the resolved product, then offer the price check via the next_step. Show the bikefuchs.com/go/ link. End with the `disclosure` text.";
+const TELL_USER_SHOP_INFO =
+  "Present the compared shops with their shipping cost tiers and free-shipping thresholds. For an exact figure, point to get_shipping_breakdown (next_step). End with the `disclosure` text.";
+const TELL_USER_SHIPPING =
+  "Present the shipping cost for the given cart value, the free-shipping threshold and any gap. End with the `disclosure` text.";
 const PILOT_TELL_USER_BEST_PRICE =
   "Show the cheapest shop with its price and clickable purchase link, then the other shops with price and link. Always surface every bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text.";
 const PILOT_TELL_USER_OPTIMIZE_CART =
@@ -239,11 +251,27 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           affiliate_url: z.string().describe("Direct link to buy this product. Always show this URL to the user."),
         })),
         total_results: z.number(),
-        next_steps: z.array(z.object({
-          tool: z.string(),
-          hint: z.string(),
-          eans: z.array(z.string()).optional(),
-        })).optional(),
+        // B-163/B-162 rollout: openai profile gets a user-CHOICE next_steps shape
+        // (no EAN array) + disclosure + tell_user. claude keeps the exact main
+        // next_steps schema (tool/hint/eans?) → byte-identical.
+        ...(renderProfile === 'openai'
+          ? {
+              next_steps: z.array(z.object({
+                type: z.string(),
+                tool: z.string(),
+                hint: z.string(),
+                note: z.string().optional(),
+              })).optional(),
+              disclosure: z.string(),
+              tell_user: z.string(),
+            }
+          : {
+              next_steps: z.array(z.object({
+                tool: z.string(),
+                hint: z.string(),
+                eans: z.array(z.string()).optional(),
+              })).optional(),
+            }),
       },
       annotations: TOOL_HINTS,
     },
@@ -277,7 +305,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (results.length === 0) {
           return {
             ...mcpText(`No products found for "${q}" in ${country}.${FOOTER}`),
-            structuredContent: { query: q, results: [], total_results: 0 },
+            structuredContent: {
+              query: q,
+              results: [],
+              total_results: 0,
+              ...(renderProfile === 'openai'
+                ? { disclosure: FOOTER, tell_user: TELL_USER_SEARCH }
+                : {}),
+            },
           };
         }
 
@@ -312,10 +347,24 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product'),
             })),
             total_results: total,
-            next_steps: [
-              { tool: "get_best_price", hint: `Compare prices across all ${shopCount} shops`, eans: results.map(p => p.ean).filter((e): e is string => !!e) },
-              { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
-            ],
+            ...(renderProfile === 'openai'
+              ? {
+                  // B-163 redesign: user-choice next_steps, no EAN array. get_best_price
+                  // takes exactly one EAN per call, so we offer it as a choice instead of
+                  // pre-binding 8/20 EANs to a single call.
+                  next_steps: [
+                    { type: "refine", tool: "search_product", hint: "Suche mit mehr Details verfeinern (Marke, Modell, Maße)" },
+                    { type: "price_check", tool: "get_best_price", hint: "Preis eines gewählten Treffers über alle Shops vergleichen", note: "genau eine EAN pro Aufruf" },
+                  ],
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_SEARCH,
+                }
+              : {
+                  next_steps: [
+                    { tool: "get_best_price", hint: `Compare prices across all ${shopCount} shops`, eans: results.map(p => p.ean).filter((e): e is string => !!e) },
+                    { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
+                  ],
+                }),
           },
         };
       } catch (err) {
@@ -391,7 +440,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               cheapest_shop: "",
               cheapest_price: 0,
               ...(renderProfile === 'openai'
-                ? { disclosure: PILOT_DISCLOSURE, tell_user: PILOT_TELL_USER_BEST_PRICE }
+                ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
                 : {}),
             },
           };
@@ -454,7 +503,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
-              ? { disclosure: PILOT_DISCLOSURE, tell_user: PILOT_TELL_USER_BEST_PRICE }
+              ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
               : {}),
           },
         };
@@ -516,6 +565,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 shop: z.string(),
                 total: z.number(),
                 delta_percent: z.number(),
+                message: z.string(),
               }).optional(),
             }
           : {}),
@@ -651,6 +701,24 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           })),
         }));
 
+        // B-164a: enrich the single-shop option from data the stub ALREADY has
+        // — shop, total, delta_percent, plus a friendly message. No per-item
+        // breakdown (the API does not return single-shop line items). openai only;
+        // computed here but only referenced in the openai branch below.
+        const singleShopOption = result.singleShopOption
+          ? (() => {
+              const sso = result.singleShopOption!;
+              const total = round2(sso.grandTotal);
+              const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
+              return {
+                shop: sso.shop,
+                total,
+                delta_percent: deltaPercent,
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – nur +${formatPercent(deltaPercent)} teurer.`,
+              };
+            })()
+          : undefined;
+
         // Claude branch is byte-identical to main. Openai branch (B-162 pilot)
         // rounds every monetary number to 2 decimals and adds the structured
         // disclosure / tell_user / savings / single_shop_option fields.
@@ -677,7 +745,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
-              disclosure: PILOT_DISCLOSURE,
+              disclosure: FOOTER,
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
               savings: result.savings !== null
                 ? {
@@ -686,13 +754,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     baseline_type: result.baselineType,
                   }
                 : undefined,
-              single_shop_option: result.singleShopOption
-                ? {
-                    shop: result.singleShopOption.shop,
-                    total: round2(result.singleShopOption.grandTotal),
-                    delta_percent: Math.round((result.singleShopOption.grandTotal - result.totalCost) / result.totalCost * 100),
-                  }
-                : undefined,
+              single_shop_option: singleShopOption,
             }
           : {
               optimization: {
@@ -739,7 +801,24 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           shipping_at: z.string().optional(),
           free_shipping_threshold_de: z.number().optional(),
           free_shipping_threshold_at: z.number().optional(),
+          // B-165: openai profile only — actual shipping-cost tiers (the
+          // amounts already rendered into content). Empty spread on claude.
+          ...(renderProfile === 'openai'
+            ? {
+                tiers_de: z.array(z.object({ min_order_value: z.number(), shipping_cost: z.number() })).optional(),
+                tiers_at: z.array(z.object({ min_order_value: z.number(), shipping_cost: z.number() })).optional(),
+              }
+            : {}),
         })),
+        // B-162 rollout: openai profile only. Empty spread on claude → schema
+        // byte-identical to main.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({ tool: z.string(), hint: z.string() }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -788,12 +867,25 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               shipping_at: at ? shippingLabel(at) : undefined,
               free_shipping_threshold_de: de?.free_shipping_threshold ?? undefined,
               free_shipping_threshold_at: at?.free_shipping_threshold ?? undefined,
+              // B-165: openai profile only — surface the real shipping-cost tiers.
+              ...(renderProfile === 'openai'
+                ? { tiers_de: de?.tiers ?? undefined, tiers_at: at?.tiers ?? undefined }
+                : {}),
             };
           });
 
         return {
           ...mcpText(md + FOOTER),
-          structuredContent: { shops: structuredShops },
+          structuredContent: {
+            shops: structuredShops,
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_SHOP_INFO,
+                  next_step: { tool: "get_shipping_breakdown", hint: "Exakte Versandkosten für einen Shop und Warenwert" },
+                }
+              : {}),
+          },
         };
       } catch (err) {
         return mcpError(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -821,6 +913,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         shipping_cost: z.number(),
         free_shipping_threshold: z.number().optional(),
         currency: z.string(),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? { disclosure: z.string(), tell_user: z.string() }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -861,6 +957,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             shipping_cost: data.shipping_cost,
             free_shipping_threshold: data.free_shipping_threshold ?? undefined,
             currency: "EUR",
+            ...(renderProfile === 'openai'
+              ? { disclosure: FOOTER, tell_user: TELL_USER_SHIPPING }
+              : {}),
           },
         };
       } catch (err) {
@@ -889,6 +988,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop."),
         })),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({ tool: z.string(), hint: z.string(), eans: z.array(z.string()).optional() }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -908,7 +1015,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ...mcpText(
               `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${FOOTER}`
             ),
-            structuredContent: { ean, product_name: "Unknown", alternatives: [] },
+            structuredContent: {
+              ean,
+              product_name: "Unknown",
+              alternatives: [],
+              ...(renderProfile === 'openai'
+                ? { disclosure: FOOTER, tell_user: TELL_USER_ALTERNATIVES }
+                : {}),
+            },
           };
         }
 
@@ -943,6 +1057,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               availability: r.in_stock ? "in_stock" : "out_of_stock",
               affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
             })),
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_ALTERNATIVES,
+                  next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
+                }
+              : {}),
           },
         };
       } catch (err) {
@@ -970,6 +1091,19 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         price: z.number().optional(),
         shop: z.string(),
         affiliate_url: z.string().optional().describe("Affiliate link for this product."),
+        // B-162 rollout: openai profile only. Empty spread on claude → identical.
+        ...(renderProfile === 'openai'
+          ? {
+              disclosure: z.string(),
+              tell_user: z.string(),
+              next_step: z.object({
+                tool: z.string(),
+                hint: z.string(),
+                ean: z.string().optional(),
+                reference_shop: z.string().optional(),
+              }).optional(),
+            }
+          : {}),
       },
       annotations: TOOL_HINTS,
     },
@@ -1018,6 +1152,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             price: data.price,
             shop: data.shop,
             affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product') || undefined,
+            ...(renderProfile === 'openai'
+              ? {
+                  disclosure: FOOTER,
+                  tell_user: TELL_USER_RESOLVE,
+                  ...(data.ean
+                    ? { next_step: { tool: "get_best_price", hint: "Preis über alle Shops vergleichen und Ersparnis ggü. diesem Shop zeigen", ean: data.ean, reference_shop: data.shop_id } }
+                    : {}),
+                }
+              : {}),
           },
         };
       } catch (err) {
