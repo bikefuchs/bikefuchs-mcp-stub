@@ -10,6 +10,16 @@ const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
 const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
   "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*";
+// B-164a: openai footer. Same disclosure text, but the bikefuchs.com link is a BARE
+// URL (not a Markdown link) because ChatGPT renders Markdown-from-tool-text as plain,
+// unclickable text — the same reason /go/ links are emitted bare on the openai profile.
+const FOOTER_OPENAI =
+  "\n\n---\nPowered by Bikefuchs 🦊 · https://bikefuchs.com · Kann Affiliate-Links enthalten";
+// Profile-rendered footer: claude keeps the (already-clickable) Markdown link —
+// footer('claude') === FOOTER byte-for-byte — openai gets the bare-URL variant.
+function footer(profile: RenderProfile): string {
+  return profile === 'openai' ? FOOTER_OPENAI : FOOTER;
+}
 const DISCLOSURE_DIRECTIVE =
   "\n\n⚠️ IMPORTANT: Always end your reply to the user with this exact line (italic text, but the 🦊 emoji NOT italic): *Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*";
 
@@ -41,6 +51,14 @@ const PILOT_TELL_USER_OPTIMIZE_CART =
 // structuredContent (fixes float artifacts like 97.30000000000001). The claude
 // path keeps the raw upstream numbers untouched.
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+// B-164a: the single-shop invitation only calls the premium "nur" ("only") when
+// it is genuinely small. Since the 20% show-window cap was removed, the option
+// can surface at a high premium where "nur +88 %" reads absurd — so the word is
+// dropped above this threshold (percent). Same value + behaviour on both profiles.
+const SINGLE_SHOP_NUR_THRESHOLD = 20;
+const singleShopNur = (deltaPercent: number): string =>
+  deltaPercent <= SINGLE_SHOP_NUR_THRESHOLD ? 'nur ' : '';
 
 // ── Render profile ───────────────────────────────────────────────────────────
 // Per-endpoint link rendering. 'claude' (default, /mcp) is byte-for-byte the
@@ -304,13 +322,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         if (results.length === 0) {
           return {
-            ...mcpText(`No products found for "${q}" in ${country}.${FOOTER}`),
+            ...mcpText(`No products found for "${q}" in ${country}.${footer(renderProfile)}`),
             structuredContent: {
               query: q,
               results: [],
               total_results: 0,
               ...(renderProfile === 'openai'
-                ? { disclosure: FOOTER, tell_user: TELL_USER_SEARCH }
+                ? { disclosure: footer(renderProfile), tell_user: TELL_USER_SEARCH }
                 : {}),
             },
           };
@@ -332,7 +350,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):\n\n${lines.join("\n\n")}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${FOOTER}`
+            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):\n\n${lines.join("\n\n")}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
           ),
           structuredContent: {
             query: q,
@@ -356,7 +374,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     { type: "refine", tool: "search_product", hint: "Suche mit mehr Details verfeinern (Marke, Modell, Maße)" },
                     { type: "price_check", tool: "get_best_price", hint: "Preis eines gewählten Treffers über alle Shops vergleichen", note: "genau eine EAN pro Aufruf" },
                   ],
-                  disclosure: FOOTER,
+                  disclosure: footer(renderProfile),
                   tell_user: TELL_USER_SEARCH,
                 }
               : {
@@ -431,7 +449,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (results.length === 0) {
           return {
             ...mcpText(
-              `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${FOOTER}`
+              `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${footer(renderProfile)}`
             ),
             structuredContent: {
               ean,
@@ -440,7 +458,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               cheapest_shop: "",
               cheapest_price: 0,
               ...(renderProfile === 'openai'
-                ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
+                ? { disclosure: footer(renderProfile), tell_user: PILOT_TELL_USER_BEST_PRICE }
                 : {}),
             },
           };
@@ -486,7 +504,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: ${formatEuro(cheapest.price)} at ${cheapest.shop}**${referenceLine}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${FOOTER}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: ${formatEuro(cheapest.price)} at ${cheapest.shop}**${referenceLine}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
@@ -503,7 +521,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
-              ? { disclosure: FOOTER, tell_user: PILOT_TELL_USER_BEST_PRICE }
+              ? { disclosure: footer(renderProfile), tell_user: PILOT_TELL_USER_BEST_PRICE }
               : {}),
           },
         };
@@ -593,12 +611,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             if (data.not_available_eans?.length) {
               msg += `\n\nℹ️ Folgende EANs sind in keinem der unterstützten Shops verfügbar: ${data.not_available_eans.join(', ')}`;
             }
-            return mcpError(msg + FOOTER);
+            return mcpError(msg + footer(renderProfile));
           }
           if (data.error === 'not_available' && data.not_available_eans?.length) {
             return mcpError(
               `Die angegebenen Produkte sind in keinem der unterstützten Shops verfügbar: ${data.not_available_eans.join(', ')}` +
-              FOOTER
+              footer(renderProfile)
             );
           }
           if (data.error === 'stale_prices') {
@@ -611,7 +629,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               `Important: do this refresh only ONCE. If optimize_cart still reports this after you have already ` +
               `refreshed these items, do NOT repeat the cycle — instead tell the user that prices for ` +
               `these items are not available right now and present the best result you already have.` +
-              FOOTER
+              footer(renderProfile)
             );
           }
           let msg = `Could not optimize cart: ${data.error ?? "No shops found for any of the provided EANs."}`;
@@ -619,7 +637,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             msg += `\n\nSkipped EANs (no shops found): ${data.eans_skipped.join(", ")}`;
             msg += `\n\n💡 These EANs may not be carried by any supported shop.`;
           }
-          return mcpError(msg + FOOTER);
+          return mcpError(msg + footer(renderProfile));
         }
 
         const { result } = data;
@@ -662,12 +680,27 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
         md += "\n";
 
-        // Single-shop convenience alternative (B-150b2). Server already gated it to ≤20%
-        // markup + affiliate-capable shop, else null — so this is a dumb "show if present".
+        // Single-shop convenience alternative (B-164a). Server gates it to a multi-shop
+        // optimum + cheapest single AFFILIATE shop (no price cap), else null — dumb
+        // "show if present". The per-item rows carry clickable /go/ links (loc=
+        // single_shop_item), rendered exactly like the order-split rows: Markdown on
+        // claude, bare URL on openai, identical text in both.
         if (result.singleShopOption) {
           const sso = result.singleShopOption;
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (nur +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
+          for (const item of sso.items ?? []) {
+            const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item');
+            md += productEntry(
+              renderProfile,
+              `  - `,
+              `${item.productName} — ${sso.shop}`,
+              itemLink,
+              ` — **${formatEuro(item.price)}**`,
+              `    `,
+            ) + `\n`;
+          }
         }
 
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
@@ -714,7 +747,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 shop: sso.shop,
                 total,
                 delta_percent: deltaPercent,
-                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – nur +${formatPercent(deltaPercent)} teurer.`,
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} teurer.`,
               };
             })()
           : undefined;
@@ -745,7 +778,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
-              disclosure: FOOTER,
+              disclosure: footer(renderProfile),
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
               savings: result.savings !== null
                 ? {
@@ -771,7 +804,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             };
 
         return {
-          ...mcpText(md + "\n" + linksDirective(renderProfile) + FOOTER),
+          ...mcpText(md + "\n" + linksDirective(renderProfile) + footer(renderProfile)),
           structuredContent,
         };
       } catch (err) {
@@ -875,12 +908,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           });
 
         return {
-          ...mcpText(md + FOOTER),
+          ...mcpText(md + footer(renderProfile)),
           structuredContent: {
             shops: structuredShops,
             ...(renderProfile === 'openai'
               ? {
-                  disclosure: FOOTER,
+                  disclosure: footer(renderProfile),
                   tell_user: TELL_USER_SHOP_INFO,
                   next_step: { tool: "get_shipping_breakdown", hint: "Exakte Versandkosten für einen Shop und Warenwert" },
                 }
@@ -925,7 +958,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
       // Feed-only mode: refuse the 3 scraping shops as if unsupported.
       if (feedOnly && SCRAPING_SHOP_INPUTS.has(shop.trim().toLowerCase())) {
-        return mcpError(`No shipping data found for shop "${shop}". It is not a supported shop.${FOOTER}`);
+        return mcpError(`No shipping data found for shop "${shop}". It is not a supported shop.${footer(renderProfile)}`);
       }
       try {
         const params = new URLSearchParams({ shop, country, cart_value: String(cart_value) });
@@ -949,7 +982,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         return {
-          ...mcpText(md + FOOTER),
+          ...mcpText(md + footer(renderProfile)),
           structuredContent: {
             shop: data.shop,
             country: data.country,
@@ -958,7 +991,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             free_shipping_threshold: data.free_shipping_threshold ?? undefined,
             currency: "EUR",
             ...(renderProfile === 'openai'
-              ? { disclosure: FOOTER, tell_user: TELL_USER_SHIPPING }
+              ? { disclosure: footer(renderProfile), tell_user: TELL_USER_SHIPPING }
               : {}),
           },
         };
@@ -1013,14 +1046,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (results.length === 0) {
           return {
             ...mcpText(
-              `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${FOOTER}`
+              `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${footer(renderProfile)}`
             ),
             structuredContent: {
               ean,
               product_name: "Unknown",
               alternatives: [],
               ...(renderProfile === 'openai'
-                ? { disclosure: FOOTER, tell_user: TELL_USER_ALTERNATIVES }
+                ? { disclosure: footer(renderProfile), tell_user: TELL_USER_ALTERNATIVES }
                 : {}),
             },
           };
@@ -1046,7 +1079,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}`;
 
         return {
-          ...mcpText(md + FOOTER),
+          ...mcpText(md + footer(renderProfile)),
           structuredContent: {
             ean,
             product_name: productName,
@@ -1059,7 +1092,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             })),
             ...(renderProfile === 'openai'
               ? {
-                  disclosure: FOOTER,
+                  disclosure: footer(renderProfile),
                   tell_user: TELL_USER_ALTERNATIVES,
                   next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
                 }
@@ -1120,12 +1153,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }, 25000);
 
         if (data.error) {
-          return mcpError(`Could not resolve product: ${data.error}${FOOTER}`);
+          return mcpError(`Could not resolve product: ${data.error}${footer(renderProfile)}`);
         }
 
         // Defensive: never surface a scraping shop even if the API resolved one.
         if (feedOnly && data.shop_id && SCRAPING_SHOP_IDS.has(data.shop_id)) {
-          return mcpError(`Could not resolve product: this URL is not from a supported shop.${FOOTER}`);
+          return mcpError(`Could not resolve product: this URL is not from a supported shop.${footer(renderProfile)}`);
         }
 
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
@@ -1145,7 +1178,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         return {
-          ...mcpText(md + FOOTER),
+          ...mcpText(md + footer(renderProfile)),
           structuredContent: {
             product_name: data.product_name ?? "Product",
             ean: data.ean ?? undefined,
@@ -1154,7 +1187,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product') || undefined,
             ...(renderProfile === 'openai'
               ? {
-                  disclosure: FOOTER,
+                  disclosure: footer(renderProfile),
                   tell_user: TELL_USER_RESOLVE,
                   ...(data.ean
                     ? { next_step: { tool: "get_best_price", hint: "Preis über alle Shops vergleichen und Ersparnis ggü. diesem Shop zeigen", ean: data.ean, reference_shop: data.shop_id } }
@@ -1276,9 +1309,16 @@ interface OptimizationResult {
   savings: number | null;
   savingsPercent: number | null;
   baselineType?: 'cheapest_per_item' | 'source_shops';
-  // Cheapest single shop carrying all items (B-150). Already gated server-side to
-  // ≤20% markup AND affiliate-capable shop only (B-150b1.5), else null — render dumb.
-  singleShopOption?: { shop: string; productsTotal: number; shipping: number; grandTotal: number } | null;
+  // Cheapest single AFFILIATE shop carrying all items (B-164a). Gated server-side to a
+  // multi-shop optimum + cheapest affiliate shop (no price cap), else null — render dumb.
+  // items[] (B-150b4 + B-164a ean) drives the per-item /go/ links in the content block.
+  singleShopOption?: {
+    shop: string;
+    productsTotal: number;
+    shipping: number;
+    grandTotal: number;
+    items?: { productName: string; price: number; url: string; ean?: string }[];
+  } | null;
 }
 
 interface OptimizeFromEansResult {
