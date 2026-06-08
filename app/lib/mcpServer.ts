@@ -565,6 +565,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 shop: z.string(),
                 total: z.number(),
                 delta_percent: z.number(),
+                message: z.string(),
               }).optional(),
             }
           : {}),
@@ -700,6 +701,24 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           })),
         }));
 
+        // B-164a: enrich the single-shop option from data the stub ALREADY has
+        // — shop, total, delta_percent, plus a friendly message. No per-item
+        // breakdown (the API does not return single-shop line items). openai only;
+        // computed here but only referenced in the openai branch below.
+        const singleShopOption = result.singleShopOption
+          ? (() => {
+              const sso = result.singleShopOption!;
+              const total = round2(sso.grandTotal);
+              const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
+              return {
+                shop: sso.shop,
+                total,
+                delta_percent: deltaPercent,
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – nur +${formatPercent(deltaPercent)} teurer.`,
+              };
+            })()
+          : undefined;
+
         // Claude branch is byte-identical to main. Openai branch (B-162 pilot)
         // rounds every monetary number to 2 decimals and adds the structured
         // disclosure / tell_user / savings / single_shop_option fields.
@@ -735,13 +754,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     baseline_type: result.baselineType,
                   }
                 : undefined,
-              single_shop_option: result.singleShopOption
-                ? {
-                    shop: result.singleShopOption.shop,
-                    total: round2(result.singleShopOption.grandTotal),
-                    delta_percent: Math.round((result.singleShopOption.grandTotal - result.totalCost) / result.totalCost * 100),
-                  }
-                : undefined,
+              single_shop_option: singleShopOption,
             }
           : {
               optimization: {
