@@ -788,6 +788,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           shipping_at: z.string().optional(),
           free_shipping_threshold_de: z.number().optional(),
           free_shipping_threshold_at: z.number().optional(),
+          // B-165: openai profile only — actual shipping-cost tiers (the
+          // amounts already rendered into content). Empty spread on claude.
+          ...(renderProfile === 'openai'
+            ? {
+                tiers_de: z.array(z.object({ min_order_value: z.number(), shipping_cost: z.number() })).optional(),
+                tiers_at: z.array(z.object({ min_order_value: z.number(), shipping_cost: z.number() })).optional(),
+              }
+            : {}),
         })),
         // B-162 rollout: openai profile only. Empty spread on claude → schema
         // byte-identical to main.
@@ -846,6 +854,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               shipping_at: at ? shippingLabel(at) : undefined,
               free_shipping_threshold_de: de?.free_shipping_threshold ?? undefined,
               free_shipping_threshold_at: at?.free_shipping_threshold ?? undefined,
+              // B-165: openai profile only — surface the real shipping-cost tiers.
+              ...(renderProfile === 'openai'
+                ? { tiers_de: de?.tiers ?? undefined, tiers_at: at?.tiers ?? undefined }
+                : {}),
             };
           });
 
