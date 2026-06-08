@@ -265,9 +265,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const data = await apiJson<{ results?: ProductSearchResult[]; total?: number; error?: string }>(`/api/products/search?${params}`);
 
         // Defensive client-side filter (the API feedOnly flag already excludes scraping rows).
-        const results = feedOnly && data.results
+        const filtered = feedOnly && data.results
           ? data.results.filter(p => FEED_SHOP_IDS.has(p.shop_id))
           : (data.results ?? []);
+
+        // B-163 clamp: openai profile returns at most 8 results regardless of the
+        // requested max_results. The input zod schema is unchanged (no reconnect).
+        // On the claude profile `results` === `filtered`, so output is byte-identical to main.
+        const results = renderProfile === 'openai' ? filtered.slice(0, 8) : filtered;
 
         if (results.length === 0) {
           return {
