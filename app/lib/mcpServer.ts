@@ -220,7 +220,7 @@ function buildServerInstructions(shopCount: number): string {
 
 WORKFLOW GUIDE:
 - Single product search: Use search_product with keywords → returns products with EANs and prices
-- Best price for a known product: Use get_best_price with an EAN → returns prices across all ${shopCount} shops including shipping costs
+- Best price for a known product: Use get_best_price with an EAN → returns the product price at each shop (sorted cheapest-first). Shipping is NOT included here — use optimize_cart or get_shipping_breakdown for totals including shipping
 - Multiple products to buy together: Use search_product for each item to get EANs, then call optimize_cart with all EANs → this calculates the cheapest combination of shops factoring in shipping costs and free-shipping thresholds. This is the key feature of Bikefuchs.
 - Product URL from a shop: Use resolve_product to extract EAN and product info from a shop URL
 - Shop overview: Use get_shop_info for a list of supported shops and their shipping costs
@@ -231,6 +231,7 @@ IMPORTANT RULES:
 - Always use the tools to get real prices. Never guess or estimate prices from memory.
 - For cart optimization (buying multiple items), ALWAYS use optimize_cart after collecting EANs. Do NOT manually calculate shipping — optimize_cart handles this automatically.
 - Results contain affiliate links. Always pass these links to the user as provided.
+- Answer product, price, availability, or shipping questions ONLY after a tool call has returned data. Never answer from the tool schema/description, and never reconstruct results from memory.
 - Supported countries: Germany (DE) and Austria (AT).
 
 Workflow for cart optimization: When the user wants to optimize a cart, first call get_best_price for each product, then call optimize_cart with all EANs. If optimize_cart returns missing_eans, call get_best_price for those EANs and retry optimize_cart.`;
@@ -410,7 +411,6 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           price: z.number(),
           currency: z.string(),
           availability: z.string().optional(),
-          shipping_cost: z.number().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop. Always show this URL to the user."),
         })),
         cheapest_shop: z.string(),
@@ -584,6 +584,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 total: z.number(),
                 delta_percent: z.number(),
                 message: z.string(),
+                // B-164c: per-position breakdown (same source the content loop
+                // consumes) so the programmatic openai channel gets each item's
+                // EAN + /go/ purchase link, not just the shop total.
+                items: z.array(z.object({
+                  name: z.string(),
+                  ean: z.string().optional(),
+                  price: z.number(),
+                  affiliate_url: z.string().describe("Direct link to buy this item at the single shop. Always show this URL to the user."),
+                })).optional(),
               }).optional(),
             }
           : {}),
@@ -734,20 +743,28 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           })),
         }));
 
-        // B-164a: enrich the single-shop option from data the stub ALREADY has
-        // — shop, total, delta_percent, plus a friendly message. No per-item
-        // breakdown (the API does not return single-shop line items). openai only;
-        // computed here but only referenced in the openai branch below.
+        // B-164a/B-164c: enrich the single-shop option from data the stub ALREADY
+        // has — shop, total, delta_percent, a friendly message, plus the per-item
+        // breakdown (sso.items, the same source the content loop at ~693 consumes,
+        // returned by the main app since B-164b). openai only; computed here but
+        // only referenced in the openai branch below.
         const singleShopOption = result.singleShopOption
           ? (() => {
               const sso = result.singleShopOption!;
               const total = round2(sso.grandTotal);
               const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
+              const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
               return {
                 shop: sso.shop,
                 total,
                 delta_percent: deltaPercent,
                 message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} teurer.`,
+                items: (sso.items ?? []).map(it => ({
+                  name: it.productName,
+                  ean: it.ean,
+                  price: round2(it.price),
+                  affiliate_url: buildGoUrl(ssoSlug, it.ean ?? null, 'single_shop_item'),
+                })),
               };
             })()
           : undefined;

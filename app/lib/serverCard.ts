@@ -102,18 +102,18 @@ export function buildServerCard(feedOnly: boolean) {
         name: "optimize_cart",
         title: "Optimize Shopping Cart",
         description:
-          "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide product URLs from supported shops and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT).",
+          "Optimize a shopping cart of bicycle products across multiple shops to find the cheapest total cost including shipping. Provide product EAN/GTIN barcodes from supported shops and get the optimal shop combination that minimizes total spend. Accounts for per-shop shipping costs, free-shipping thresholds, and country-specific pricing (DE/AT).",
         inputSchema: {
           type: "object",
           properties: {
-            urls: {
+            eans: {
               type: "array",
               items: { type: "string" },
-              description: "Array of product URLs from supported bike shops",
+              description: "Array of EAN/GTIN barcodes (8-14 digit numbers as strings) from the products to optimize",
             },
             country: { type: "string", enum: ["DE", "AT"], description: "Destination country (default: DE)" },
           },
-          required: ["urls"],
+          required: ["eans"],
         },
       },
       {
