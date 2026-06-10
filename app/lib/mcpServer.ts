@@ -583,6 +583,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 shop: z.string(),
                 total: z.number(),
                 delta_percent: z.number(),
+                delta_euro: z.number(),
                 message: z.string(),
                 // B-164c: per-position breakdown (same source the content loop
                 // consumes) so the programmatic openai channel gets each item's
@@ -697,7 +698,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (result.singleShopOption) {
           const sso = result.singleShopOption;
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          // B-175: pre-format the absolute € delta so the model never has to subtract.
+          const deltaEuro = sso.grandTotal - result.totalCost;
+          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
           const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
           for (const item of sso.items ?? []) {
             const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item');
@@ -753,12 +756,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               const sso = result.singleShopOption!;
               const total = round2(sso.grandTotal);
               const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
+              // B-175: pre-format the absolute € delta so the model never has to subtract.
+              const deltaEuro = sso.grandTotal - result.totalCost;
               const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
               return {
                 shop: sso.shop,
                 total,
                 delta_percent: deltaPercent,
-                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatPercent(deltaPercent)} teurer.`,
+                delta_euro: round2(deltaEuro),
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} (ca. +${formatPercent(deltaPercent)}) teurer.`,
                 items: (sso.items ?? []).map(it => ({
                   name: it.productName,
                   ean: it.ean,
