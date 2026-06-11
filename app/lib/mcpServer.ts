@@ -23,6 +23,15 @@ function footer(profile: RenderProfile): string {
 const DISCLOSURE_DIRECTIVE =
   "\n\n⚠️ IMPORTANT: Always end your reply to the user with this exact line (italic text, but the 🦊 emoji NOT italic): *Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*";
 
+// B-178: shared model-facing directive that stops both profiles from collapsing
+// the ranked search_product list to a single hit (and dropping the cheapest).
+// Single source of truth, referenced in BOTH profiles per the parity rule:
+// appended to TELL_USER_SEARCH (openai `tell_user` structuredContent) and emitted
+// in the claude content block. Declared before TELL_USER_SEARCH to avoid a
+// const temporal-dead-zone reference.
+const PRESENT_LIST_DIRECTIVE =
+  "IMPORTANT: Show ALL returned products as a ranked list, cheapest first — never collapse them to a single product, summarize them away, or omit the cheapest result.";
+
 // ── B-162 pilot (openai profile only) ────────────────────────────────────────
 // Disclosure + model-facing guidance carried INSIDE structuredContent, so the
 // programmatic ChatGPT channel (which reads structuredContent, not content) can
@@ -33,7 +42,8 @@ const DISCLOSURE_DIRECTIVE =
 // pilot's interim wording on get_best_price/optimize_cart. `tell_user` is the
 // per-tool model-facing instruction; each one ends with the `disclosure` text.
 const TELL_USER_SEARCH =
-  "Present the found products with their price, shop, and clickable bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. Do not auto-chain — offer the user the two next_steps as a choice.";
+  "Present the found products with their price, shop, and clickable bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. Do not auto-chain — offer the user the two next_steps as a choice. " +
+  PRESENT_LIST_DIRECTIVE;
 const TELL_USER_ALTERNATIVES =
   "Present each alternative with price, shop, and its bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text.";
 const TELL_USER_RESOLVE =
@@ -351,7 +361,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):\n\n${lines.join("\n\n")}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
+            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):\n\n${lines.join("\n\n")}\n\n${PRESENT_LIST_DIRECTIVE}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
           ),
           structuredContent: {
             query: q,
