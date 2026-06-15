@@ -475,10 +475,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         const cheapest = results[0]!;
+        // B-169: the 🏆 / "best price" must go to the cheapest IN-STOCK shop, not the
+        // cheapest by price alone. results is price-sorted, so the first in-stock row is
+        // the cheapest available offer. null = every shop is out of stock (no trophy).
+        const cheapestInStock = results.find(r => r.in_stock) ?? null;
         const productName = cheapest.product_name ?? "Product";
         const lines = results.map((r, i) => {
           const stockIcon = r.in_stock ? "✅" : "❌";
-          const trophy = i === 0 ? " 🏆" : "";
+          const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'get_best_price');
           return productEntry(
             renderProfile,
@@ -495,12 +499,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         let referenceLine = '';
         let referenceComparison: { reference_shop: string; reference_price: number; saving: number; saving_percent?: number } | undefined;
-        if (refEntry) {
-          if (refEntry.shop_id !== cheapest.shop_id) {
-            const saving = refEntry.price - cheapest.price;
+        // B-169: compare against the cheapest IN-STOCK shop (the buyable winner), not the
+        // cheapest-by-price row. Skip entirely when every shop is out of stock.
+        if (refEntry && cheapestInStock) {
+          if (refEntry.shop_id !== cheapestInStock.shop_id) {
+            const saving = refEntry.price - cheapestInStock.price;
             const savingPct = (saving / refEntry.price) * 100;
             const savingPctStr = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(savingPct) + ' %';
-            referenceLine = `\n\n**${refEntry.shop}: ${formatEuro(refEntry.price)} — günstiger bei ${cheapest.shop}: ${formatEuro(cheapest.price)} (${formatEuro(saving)} / ${savingPctStr} günstiger).**`;
+            referenceLine = `\n\n**${refEntry.shop}: ${formatEuro(refEntry.price)} — günstiger bei ${cheapestInStock.shop}: ${formatEuro(cheapestInStock.price)} (${formatEuro(saving)} / ${savingPctStr} günstiger).**`;
             referenceComparison = {
               reference_shop: refEntry.shop,
               reference_price: refEntry.price,
@@ -512,9 +518,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           }
         }
 
+        // B-169: human-readable winner line. The in-stock winner is crowned; when every
+        // shop is out of stock, state that plainly and crown nobody.
+        const bestPriceLine = cheapestInStock
+          ? `**Best price: ${formatEuro(cheapestInStock.price)} at ${cheapestInStock.shop}**`
+          : `**Currently out of stock at every shop listed — no in-stock best price available.**`;
+
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n**Best price: ${formatEuro(cheapest.price)} at ${cheapest.shop}**${referenceLine}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
@@ -526,8 +538,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               availability: r.in_stock ? "in_stock" : "out_of_stock",
               affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
             })),
-            cheapest_shop: cheapest.shop,
-            cheapest_price: cheapest.price,
+            cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
+            cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
@@ -1093,12 +1105,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         const productName = results[0]!.product_name ?? "Product";
+        // B-169: crown the cheapest IN-STOCK shop (price-sorted list → first in-stock row),
+        // not the cheapest by price alone. null = every shop is out of stock (no trophy).
+        const cheapestInStock = results.find(r => r.in_stock) ?? null;
         let md = `## Where to Buy: ${productName}\n\nEAN: ${ean} · ${country} · ${results.length} shop(s) carry this product\n\n`;
 
         for (let i = 0; i < results.length; i++) {
           const r = results[i];
           const stockIcon = r.in_stock ? "✅" : "❌";
-          const trophy = i === 0 ? " 🏆" : "";
+          const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'find_alternatives');
           md += productEntry(
             renderProfile,
@@ -1107,6 +1122,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             link,
             `${trophy} — **${formatEuro(r.price)}** ${stockIcon}`,
           ) + `\n`;
+        }
+
+        if (!cheapestInStock) {
+          md += `\n⚠️ Currently out of stock at every shop listed above.\n`;
         }
 
         md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}`;
