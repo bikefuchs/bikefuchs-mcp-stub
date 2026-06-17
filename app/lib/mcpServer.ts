@@ -23,6 +23,20 @@ function footer(profile: RenderProfile): string {
 const DISCLOSURE_DIRECTIVE =
   "\n\n⚠️ IMPORTANT: Always end your reply to the user with this exact line (italic text, but the 🦊 emoji NOT italic): *Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*";
 
+// B-196 (Claude endpoint only): 2-call warm directive. On a cold scraping cache the
+// slow BIKE24 scrape (~20s) has NOT finished when get_best_price returns, so a scraping
+// shop is missing or only transiently Unavailable in this first result — the cheapest
+// shop shown may be wrong. The API reports this via scraping_pending; the persistence
+// half (B-188) guarantees a SECOND get_best_price call ~20–30s later reads the
+// converged price. This directive makes the model perform that second call. Emitted
+// ONLY when scraping_pending is true AND only on the claude profile (feedOnly===false) —
+// the openai/feed-only profile has no scraping shops and must never see it. Lives in the
+// content block (Claude reads content, not structuredContent). The "only ONCE" guard
+// mirrors the optimize_cart stale-gate wording so a non-converging edge can't loop
+// (full convergence of the Unavailable marker is tracked separately in B-195).
+const WARMING_REFRESH_DIRECTIVE =
+  "\n\n⏳ IMPORTANT — prices still warming: Live prices from one or more scraping shops (e.g. BIKE24) are NOT yet included above, so this comparison may be incomplete and the cheapest shop may still change. Call get_best_price for this exact EAN ONE more time in ~20–30 seconds to get the final, complete result, and tell the user the live prices are still loading and you will check again shortly. Do this refresh only ONCE — if a shop is still reported as pending after you have already refreshed once, present the best result you have and note that one shop's live price could not be confirmed right now.";
+
 // B-178: shared model-facing directive that stops both profiles from collapsing
 // the ranked search_product list to a single hit (and dropping the cheapest).
 // Single source of truth, referenced in BOTH profiles per the parity rule:
@@ -448,7 +462,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Best Price", { ean });
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
-        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
+        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}`);
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter; cheapest
         // is recomputed from the filtered (still cheapest-first) list.
@@ -456,10 +470,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? data.results.filter(r => FEED_SHOP_IDS.has(r.shop_id))
           : (data.results ?? []);
 
+        // B-196: 2-call warm directive. Claude profile only (feedOnly===false) — the
+        // openai/feed-only profile has no scraping shops, so scraping_pending is moot
+        // and the directive must never appear there.
+        const warmingDirective = !feedOnly && data.scraping_pending ? WARMING_REFRESH_DIRECTIVE : '';
+
         if (results.length === 0) {
           return {
             ...mcpText(
-              `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${footer(renderProfile)}`
+              `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${warmingDirective}${footer(renderProfile)}`
             ),
             structuredContent: {
               ean,
@@ -526,7 +545,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
