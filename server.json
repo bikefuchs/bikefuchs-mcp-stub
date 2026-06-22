@@ -1,0 +1,15 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.bikefuchs/bikefuchs",
+  "title": "Bikefuchs — Bike Parts Price Comparison",
+  "description": "Price comparison & cart optimizer for bike parts across German & Austrian shops",
+  "version": "2.5.0",
+  "websiteUrl": "https://bikefuchs.com",
+  "repository": {
+    "url": "https://github.com/bikefuchs/bikefuchs-mcp-stub",
+    "source": "github"
+  },
+  "remotes": [
+    { "type": "streamable-http", "url": "https://mcp.bikefuchs.com/mcp" }
+  ]
+}
