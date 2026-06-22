@@ -19,3 +19,7 @@ next-env.d.ts
 
 # misc
 .DS_Store
+
+# MCP registry signing keys — NEVER commit
+key.pem
+*.pem
