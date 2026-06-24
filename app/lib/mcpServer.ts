@@ -1227,6 +1227,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           return mcpError(`Could not resolve product: ${data.error}${footer(renderProfile)}`);
         }
 
+        // B-044: family found but the exact variant couldn't be determined. NOT an error —
+        // relay a calm "open the product and pick the variant" message with the family link.
+        if (data.status === 'not_resolved') {
+          const link = data.family_url ? `\n\n${data.family_url}` : '';
+          const msg = data.message ?? 'This product comes in several variants; the exact one could not be determined from the link. Open the product and pick the variant.';
+          return mcpText(`## Pick the variant\n\n${msg}${link}${footer(renderProfile)}`);
+        }
+
         // Defensive: never surface a scraping shop even if the API resolved one.
         if (feedOnly && data.shop_id && SCRAPING_SHOP_IDS.has(data.shop_id)) {
           return mcpError(`Could not resolve product: this URL is not from a supported shop.${footer(renderProfile)}`);
@@ -1422,4 +1430,8 @@ interface ResolveResult {
   purchase_url: string | null;
   product_url: string | null;
   error?: string;
+  // B-044: present when the family was found but the exact variant is undeterminable.
+  status?: 'not_resolved';
+  message?: string;
+  family_url?: string;
 }
