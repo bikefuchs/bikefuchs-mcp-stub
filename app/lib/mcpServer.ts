@@ -1195,6 +1195,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         price: z.number().optional(),
         shop: z.string(),
         affiliate_url: z.string().optional().describe("Affiliate link for this product."),
+        // B-044: not_resolved discriminator (additive, optional → resolved path unaffected).
+        // Present when the family was found but the exact variant couldn't be determined.
+        status: z.string().optional().describe("'not_resolved' when the exact variant could not be determined."),
+        resolved: z.boolean().optional(),
+        family_url: z.string().optional().describe("Branded /go/ link to the product family page so the user can pick the variant."),
+        message: z.string().optional(),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
           ? {
@@ -1230,9 +1236,25 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // B-044: family found but the exact variant couldn't be determined. NOT an error —
         // relay a calm "open the product and pick the variant" message with the family link.
         if (data.status === 'not_resolved') {
+          const pn = data.product_name ?? 'Das Produkt';
+          const msg = data.message ?? `${pn} gefunden – Variante nicht eindeutig, bitte auf der Shop-Seite wählen und Link erneut einfügen.`;
           const link = data.family_url ? `\n\n${data.family_url}` : '';
-          const msg = data.message ?? 'This product comes in several variants; the exact one could not be determined from the link. Open the product and pick the variant.';
-          return mcpText(`## Pick the variant\n\n${msg}${link}${footer(renderProfile)}`);
+          // content → Claude (reads ONLY content). structuredContent → ChatGPT + schema validation
+          // (the tool has an outputSchema, so a non-error response MUST carry structuredContent).
+          return {
+            ...mcpText(`## Variante wählen\n\n${msg}${link}${footer(renderProfile)}`),
+            structuredContent: {
+              product_name: pn,                 // required (string)
+              shop: data.shop ?? 'Rose Bikes',  // required (string)
+              status: 'not_resolved',
+              resolved: false,
+              family_url: data.family_url,
+              message: msg,
+              ...(renderProfile === 'openai'
+                ? { disclosure: footer(renderProfile), tell_user: msg }
+                : {}),
+            },
+          };
         }
 
         // Defensive: never surface a scraping shop even if the API resolved one.
