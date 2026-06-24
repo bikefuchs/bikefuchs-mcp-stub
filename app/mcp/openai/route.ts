@@ -1,9 +1,9 @@
 import type { NextRequest } from "next/server";
 import { handle } from "../../lib/mcpServer";
 
-// Feed-only MCP endpoint at /mcp/openai — exposes ONLY the 7 authorized feed
-// shops and never reveals or counts the 3 scraping shops (BIKE24, Bike-Discount,
-// bike-components). Same server logic as /mcp, with feedOnly=true.
+// Feed-only MCP endpoint at /mcp/openai — exposes ONLY the 8 authorized feed
+// shops and never reveals or counts the 2 scraping shops (BIKE24, Bike-Discount).
+// Same server logic as /mcp, with feedOnly=true.
 //
 // renderProfile: 'openai' makes the shared builder emit /go/ links as BARE
 // plain-text https:// URLs (ChatGPT does not reliably render markdown links
