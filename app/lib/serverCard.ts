@@ -17,10 +17,11 @@ export const CARD_HEADERS = {
 export function buildServerCard(feedOnly: boolean) {
   // Feed-only card leads with the optimization sentence (we run the optimization
   // service), then the comparison sentence — aligned with OpenAI's stance against
-  // pass-through/aggregator apps. The default 10-shop string is unchanged.
+  // pass-through/aggregator apps. The feed-only (openai) 7-shop string is unchanged
+  // (fahrrad-xxl stays off openai); the default Claude card is 11 shops.
   const description = feedOnly
     ? "Optimize multi-product shopping carts to minimize total cost including shipping across 7 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, and HiBike. Supports DE and AT markets."
-    : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 10 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, BIKE24, Bike-Discount, and bike-components. Supports DE and AT markets.";
+    : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 11 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, BIKE24, Bike-Discount, bike-components, and fahrrad-xxl. Supports DE and AT markets.";
 
   // Feed-only card leads its title with optimization; default title unchanged.
   const title = feedOnly
