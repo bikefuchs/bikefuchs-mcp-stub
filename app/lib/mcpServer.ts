@@ -160,24 +160,25 @@ const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
 // ── Shop roster ────────────────────────────────────────────────────────────────
 // Single source of truth: src/config/shops.ts in the website repo.
 // Update both files whenever the shop list changes.
-const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike', 'bike-components'];
-const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount'];
+const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike'];
+const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount', 'bike-components'];
 const ALL_SHOPS = [...FEED_SHOPS, ...SCRAPING_SHOPS];
 const SHOP_COUNT = ALL_SHOPS.length; // 10 — update when shops.ts changes
 
 // ── Feed-only mode (/mcp/openai) ────────────────────────────────────────────
-// The 8 authorized feed shops are exposed; the 2 scraping shops (BIKE24,
-// Bike-Discount) must never be revealed or counted.
+// The 7 authorized feed shops are exposed; the 3 scraping shops (BIKE24,
+// Bike-Discount, bike-components) must never be revealed or counted.
 // Filtering keys, by the identifier each tool actually carries:
 //   - shop_id (internal id)  → search_product, get_best_price, find_alternatives, resolve_product
 //   - display name (shipping_costs table key) → get_shop_info
 //   - free-text shop input    → get_shipping_breakdown
-const FEED_SHOP_IDS = new Set(['boc24', 'fahrrad24', 'rosebikes', 'fahrradteile', 'bmo', 'maciag', 'hibike', 'bike-components']);
-const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount']);
-// Exact table-side display names of the 2 scraping shops.
-const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount']);
+const FEED_SHOP_IDS = new Set(['boc24', 'fahrrad24', 'rosebikes', 'fahrradteile', 'bmo', 'maciag', 'hibike']);
+const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount', 'bike-components']);
+// Exact table-side display names of the 3 scraping shops (note capital C in
+// "Bike-Components" as stored in shipping_costs; lower-case variant kept defensively).
+const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount', 'Bike-Components', 'bike-components']);
 // Lower-cased free-text forms a user might pass to get_shipping_breakdown.
-const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount']);
+const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount', 'bike-components', 'bike components']);
 
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
   if (!shopId) return "";
@@ -925,8 +926,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const data = await apiJson<{ shops?: Record<string, Record<string, ShippingCountryInfo>>; error?: string }>("/api/shops/shipping");
 
         const shops = data.shops ?? {};
-        // Feed-only mode: drop the 2 scraping shops by their exact shipping_costs
-        // table display names (BIKE24, Bike-Discount).
+        // Feed-only mode: drop the 3 scraping shops by their exact shipping_costs
+        // table display names (e.g. "Bike-Components" with capital C).
         const shopEntries = Object.entries(shops)
           .filter(([name]) => !feedOnly || !SCRAPING_DISPLAY_NAMES.has(name));
         let md = `## Bikefuchs — Shop Shipping Overview\n\n`;
@@ -1019,7 +1020,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
     async ({ shop, country, cart_value }) => {
       trackMcpEvent("MCP Shipping", { shop });
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
-      // Feed-only mode: refuse the 2 scraping shops as if unsupported.
+      // Feed-only mode: refuse the 3 scraping shops as if unsupported.
       if (feedOnly && SCRAPING_SHOP_INPUTS.has(shop.trim().toLowerCase())) {
         return mcpError(`No shipping data found for shop "${shop}". It is not a supported shop.${footer(renderProfile)}`);
       }
@@ -1224,7 +1225,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           method: "POST",
           headers: { "Content-Type": "application/json" },
           // Feed-only mode: the API rejects scraping-shop URLs and never lists the
-          // 2 scraping shops in its "unsupported URL" error text.
+          // 3 scraping shops in its "unsupported URL" error text.
           body: JSON.stringify(feedOnly ? { url, country, feedOnly: true } : { url, country }),
         }, 25000);
 

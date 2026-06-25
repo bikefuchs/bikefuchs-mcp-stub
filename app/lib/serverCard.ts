@@ -1,10 +1,10 @@
 // Shared MCP server-card builder.
 //
-// buildServerCard(false) reproduces the 10-shop card (8 feed + 2 scraping)
+// buildServerCard(false) reproduces the original 10-shop card byte-for-byte
 // (served at /.well-known/mcp/server-card.json).
-// buildServerCard(true) is the feed-only (8-shop) variant for the /mcp/openai
+// buildServerCard(true) is the feed-only (7-shop) variant for the /mcp/openai
 // endpoint (served at /.well-known/mcp/openai/server-card.json) — it never
-// names or counts the 2 scraping shops (BIKE24, Bike-Discount).
+// names or counts the 3 scraping shops.
 
 export const CARD_HEADERS = {
   "Content-Type": "application/json",
@@ -19,7 +19,7 @@ export function buildServerCard(feedOnly: boolean) {
   // service), then the comparison sentence — aligned with OpenAI's stance against
   // pass-through/aggregator apps. The default 10-shop string is unchanged.
   const description = feedOnly
-    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 8 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, and bike-components. Supports DE and AT markets."
+    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 7 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, and HiBike. Supports DE and AT markets."
     : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 10 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, BIKE24, Bike-Discount, and bike-components. Supports DE and AT markets.";
 
   // Feed-only card leads its title with optimization; default title unchanged.
@@ -37,11 +37,11 @@ export function buildServerCard(feedOnly: boolean) {
     : "https://mcp.bikefuchs.com/mcp";
 
   const searchDescription = feedOnly
-    ? "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 8 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts."
+    ? "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 7 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts."
     : "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 10 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts.";
 
   const bestPriceDescription = feedOnly
-    ? "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 8 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links."
+    ? "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 7 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links."
     : "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 10 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.";
 
   const shippingShopExample = feedOnly
