@@ -140,6 +140,7 @@ const INTERNAL_ID_TO_SLUG: Record<string, string> = {
   'bike24': 'bike24',
   'bike-discount': 'bike-discount',
   'bike-components': 'bike-components',
+  'fahrradxxl': 'fahrrad-xxl',
 };
 
 const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
@@ -155,30 +156,36 @@ const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
   'BIKE24': 'bike24',
   'Bike-Discount': 'bike-discount',
   'bike-components': 'bike-components',
+  'fahrrad-xxl': 'fahrrad-xxl',
 };
 
 // ── Shop roster ────────────────────────────────────────────────────────────────
 // Single source of truth: src/config/shops.ts in the website repo.
 // Update both files whenever the shop list changes.
+// FEED_SHOPS = shops shown on /mcp/openai (ChatGPT). fahrrad-xxl is a FEED shop on the
+// website + Claude /mcp, but stays OFF /mcp/openai (ChatGPT roster frozen at 7 until
+// B-046), so — like bike-components — it lives in the openai-hidden sets below, NOT here.
 const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike'];
-const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount', 'bike-components'];
+const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount', 'bike-components', 'fahrrad-xxl'];
 const ALL_SHOPS = [...FEED_SHOPS, ...SCRAPING_SHOPS];
-const SHOP_COUNT = ALL_SHOPS.length; // 10 — update when shops.ts changes
+const SHOP_COUNT = ALL_SHOPS.length; // 11 — update when shops.ts changes
 
 // ── Feed-only mode (/mcp/openai) ────────────────────────────────────────────
-// The 7 authorized feed shops are exposed; the 3 scraping shops (BIKE24,
-// Bike-Discount, bike-components) must never be revealed or counted.
+// The 7 authorized feed shops are exposed; the other shops must never be revealed
+// or counted on /mcp/openai: the 2 scraping shops (BIKE24, Bike-Discount),
+// bike-components (feed, IP-hygiene), and fahrrad-xxl (feed, ChatGPT roster frozen
+// at 7 until B-046). All four are excluded from openai via the sets below.
 // Filtering keys, by the identifier each tool actually carries:
 //   - shop_id (internal id)  → search_product, get_best_price, find_alternatives, resolve_product
 //   - display name (shipping_costs table key) → get_shop_info
 //   - free-text shop input    → get_shipping_breakdown
 const FEED_SHOP_IDS = new Set(['boc24', 'fahrrad24', 'rosebikes', 'fahrradteile', 'bmo', 'maciag', 'hibike']);
-const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount', 'bike-components']);
-// Exact table-side display names of the 3 scraping shops (note capital C in
-// "Bike-Components" as stored in shipping_costs; lower-case variant kept defensively).
-const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount', 'Bike-Components', 'bike-components']);
+const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount', 'bike-components', 'fahrradxxl']);
+// Exact table-side display names of the openai-hidden shops (note capital C in
+// "Bike-Components" as stored in shipping_costs; lower-case variants kept defensively).
+const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount', 'Bike-Components', 'bike-components', 'fahrrad-xxl']);
 // Lower-cased free-text forms a user might pass to get_shipping_breakdown.
-const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount', 'bike-components', 'bike components']);
+const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount', 'bike-components', 'bike components', 'fahrrad-xxl', 'fahrradxxl', 'fahrrad xxl']);
 
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
   if (!shopId) return "";
