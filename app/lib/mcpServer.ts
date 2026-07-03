@@ -1188,7 +1188,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
     "resolve_product",
     {
       title: "Resolve Product URL",
-      description: "Turn a product page URL from a supported shop into structured product data — EAN barcode, price, stock status, and a purchase link — so the EAN can then be used with get_best_price or optimize_cart.",
+      description: "Turn a product page URL from a supported shop into structured product data — EAN barcode, price, stock status, and a purchase link — so the EAN can then be used with get_best_price or optimize_cart. Multi-variant product families return a labeled candidate list (size/colour, price, EAN per variant): ask the user to pick a variant, then use that exact variant's EAN with the other tools.",
       inputSchema: {
         url: z.string().url().describe(feedOnly
           ? "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/...')"
@@ -1204,10 +1204,20 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         affiliate_url: z.string().optional().describe("Affiliate link for this product."),
         // B-044: not_resolved discriminator (additive, optional → resolved path unaffected).
         // Present when the family was found but the exact variant couldn't be determined.
-        status: z.string().optional().describe("'not_resolved' when the exact variant could not be determined."),
+        status: z.string().optional().describe("'not_resolved' when the exact variant could not be determined; 'pick_variant' when labeled variant options are returned to choose from."),
         resolved: z.boolean().optional(),
         family_url: z.string().optional().describe("Branded /go/ link to the product family page so the user can pick the variant."),
         message: z.string().optional(),
+        // B-259: labeled variant options (additive, optional → all existing paths unaffected).
+        // Present when status === 'pick_variant': one entry per sibling variant of the family.
+        axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour' or 'mixed'."),
+        options: z.array(z.object({
+          ean: z.string().describe("EAN of this exact variant — use it with get_best_price / optimize_cart."),
+          size: z.string().nullable().optional(),
+          colour: z.string().nullable().optional(),
+          price: z.number(),
+          in_stock: z.boolean(),
+        })).optional().describe("Variants of ONE product. Ask the user to pick one, then use that variant's EAN."),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
           ? {
@@ -1238,6 +1248,52 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         if (data.error) {
           return mcpError(`Could not resolve product: ${data.error}${footer(renderProfile)}`);
+        }
+
+        // B-259: multi-variant family with LABELED sibling options — render a German text
+        // picker (one line per variant: size/colour, price, stock, EAN) plus an English
+        // model-facing directive. Backward-compatible: when the API sends no options (flag
+        // off / older API), status is 'not_resolved' and the block below renders as today.
+        if (data.status === 'pick_variant' && Array.isArray(data.options) && data.options.length > 0) {
+          const pn = data.product_name ?? 'Das Produkt';
+          const msg = data.message ?? `${pn} ist in ${data.options.length} Varianten verfügbar – bitte wähle die gewünschte Variante.`;
+          const lines = data.options.map((o, i) => {
+            const label = [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
+              .filter(Boolean).join(', ') || `Variante ${i + 1}`;
+            const stock = o.in_stock ? '✅ auf Lager' : '❌ nicht auf Lager';
+            return `${i + 1}. ${label} — ${formatEuro(o.price)} — ${stock} — EAN: ${o.ean}`;
+          });
+          const link = data.family_url ? `\n\n${data.family_url}` : '';
+          // Model-facing anchor directive (English, per convention: user-facing strings German,
+          // model-facing directives English). Lives in content because Claude reads ONLY content.
+          const directive =
+            `\n\n---\n\nInstructions for the assistant: the options above are variants of ONE product` +
+            `${data.axis ? ` (variant axis: ${data.axis})` : ''}. Ask the user which size/colour/variant they want. ` +
+            `When the user chooses, call get_best_price (single product) or optimize_cart (multiple products) ` +
+            `with the EAN listed next to that exact variant. NEVER search for the variant by free-text description.`;
+          return {
+            ...mcpText(`## Variante wählen\n\n${msg}\n\n${lines.join('\n')}${link}${directive}${footer(renderProfile)}`),
+            structuredContent: {
+              product_name: pn,                 // required (string)
+              shop: data.shop ?? 'Shop',        // required (string)
+              status: 'pick_variant',
+              resolved: false,
+              axis: data.axis,
+              options: data.options,
+              family_url: data.family_url,
+              message: msg,
+              ...(renderProfile === 'openai'
+                ? {
+                    disclosure: footer(renderProfile),
+                    tell_user: msg,
+                    next_step: {
+                      tool: "get_best_price",
+                      hint: "Ask the user to pick one of the listed variants, then call get_best_price (or optimize_cart for multiple products) with that variant's EAN. Never search for the variant by free-text description.",
+                    },
+                  }
+                : {}),
+            },
+          };
         }
 
         // B-044: family found but the exact variant couldn't be determined. NOT an error —
@@ -1460,7 +1516,17 @@ interface ResolveResult {
   product_url: string | null;
   error?: string;
   // B-044: present when the family was found but the exact variant is undeterminable.
-  status?: 'not_resolved';
+  // B-259: 'pick_variant' when the API relays labeled sibling options (see `options`).
+  status?: 'not_resolved' | 'pick_variant';
   message?: string;
   family_url?: string;
+  // B-259: labeled variant options of one multi-variant family (present with 'pick_variant').
+  axis?: string;
+  options?: Array<{
+    ean: string;
+    size: string | null;
+    colour: string | null;
+    price: number;
+    in_stock: boolean;
+  }>;
 }
