@@ -1210,11 +1210,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         message: z.string().optional(),
         // B-259: labeled variant options (additive, optional → all existing paths unaffected).
         // Present when status === 'pick_variant': one entry per sibling variant of the family.
-        axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour' or 'mixed'."),
+        axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour', 'mixed' or 'size_name'."),
         options: z.array(z.object({
           ean: z.string().describe("EAN of this exact variant — use it with get_best_price / optimize_cart."),
           size: z.string().nullable().optional(),
           colour: z.string().nullable().optional(),
+          // B-264b: without this the SDK's outputSchema validation would silently strip
+          // the field from structuredContent (ChatGPT reads structuredContent only).
+          donor_label: z.string().optional().describe("Verbatim variant/product name; use as the choice label when present."),
           price: z.number(),
           in_stock: z.boolean(),
         })).optional().describe("Variants of ONE product. Ask the user to pick one, then use that variant's EAN."),
@@ -1258,8 +1261,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           const pn = data.product_name ?? 'Das Produkt';
           const msg = data.message ?? `${pn} ist in ${data.options.length} Varianten verfügbar – bitte wähle die gewünschte Variante.`;
           const lines = data.options.map((o, i) => {
-            const label = [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
-              .filter(Boolean).join(', ') || `Variante ${i + 1}`;
+            // B-264b: a size_name option carries the verbatim donor product name — it is the
+            // PRIMARY label (size appended for context), rendered whole (never truncated or
+            // token-extracted; the field never contains a shop name). Without donor_label the
+            // B-259 size/colour label is unchanged.
+            const label = o.donor_label
+              ? `${o.donor_label}${o.size ? ` — Größe ${o.size}` : ''}`
+              : [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
+                  .filter(Boolean).join(', ') || `Variante ${i + 1}`;
             const stock = o.in_stock ? '✅ auf Lager' : '❌ nicht auf Lager';
             return `${i + 1}. ${label} — ${formatEuro(o.price)} — ${stock} — EAN: ${o.ean}`;
           });
@@ -1528,5 +1537,8 @@ interface ResolveResult {
     colour: string | null;
     price: number;
     in_stock: boolean;
+    // B-264b: verbatim donor product name (axis 'size_name' only) — the choice label
+    // for a size collision. Never carries a shop attribution.
+    donor_label?: string;
   }>;
 }
