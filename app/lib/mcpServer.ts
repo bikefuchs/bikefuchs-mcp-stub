@@ -1218,8 +1218,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           // B-264b: without this the SDK's outputSchema validation would silently strip
           // the field from structuredContent (ChatGPT reads structuredContent only).
           donor_label: z.string().optional().describe("Verbatim variant/product name; use as the choice label when present."),
-          price: z.number(),
-          in_stock: z.boolean(),
+          // B-256 Phase 2: a SCRAPING-family option carries NO per-variant price/stock
+          // (one scraped page = one price for N variants — a per-variant number would be
+          // fabricated), so the API sends null. Nullable+optional so the SDK's outputSchema
+          // validation doesn't reject/strip such options; feed options keep sending
+          // number/boolean and validate exactly as before.
+          price: z.number().nullable().optional().describe("Price at the input shop; null when only a family-level page price exists."),
+          in_stock: z.boolean().nullable().optional().describe("Stock at the input shop; null when unknown per variant."),
         })).optional().describe("Variants of ONE product. Ask the user to pick one, then use that variant's EAN."),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
@@ -1269,8 +1274,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               ? `${o.donor_label}${o.size ? ` — Größe ${o.size}` : ''}`
               : [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
                   .filter(Boolean).join(', ') || `Variante ${i + 1}`;
-            const stock = o.in_stock ? '✅ auf Lager' : '❌ nicht auf Lager';
-            return `${i + 1}. ${label} — ${formatEuro(o.price)} — ${stock} — EAN: ${o.ean}`;
+            // B-256 Phase 2: scraping-family options carry price/in_stock as null — omit
+            // the segment entirely (never render a fabricated "0,00 €" or a false "nicht
+            // auf Lager"). Feed options (number/boolean always set) render byte-identically.
+            const priceSeg = o.price != null ? ` — ${formatEuro(o.price)}` : '';
+            const stockSeg = o.in_stock != null ? ` — ${o.in_stock ? '✅ auf Lager' : '❌ nicht auf Lager'}` : '';
+            return `${i + 1}. ${label}${priceSeg}${stockSeg} — EAN: ${o.ean}`;
           });
           const link = data.family_url ? `\n\n${data.family_url}` : '';
           // Model-facing anchor directive (English, per convention: user-facing strings German,
@@ -1535,8 +1544,9 @@ interface ResolveResult {
     ean: string;
     size: string | null;
     colour: string | null;
-    price: number;
-    in_stock: boolean;
+    // B-256 Phase 2: null on scraping-family options (no per-variant price/stock exists).
+    price: number | null;
+    in_stock: boolean | null;
     // B-264b: verbatim donor product name (axis 'size_name' only) — the choice label
     // for a size collision. Never carries a shop attribution.
     donor_label?: string;
