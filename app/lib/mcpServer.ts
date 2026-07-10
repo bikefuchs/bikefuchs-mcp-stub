@@ -1210,7 +1210,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         message: z.string().optional(),
         // B-259: labeled variant options (additive, optional → all existing paths unaffected).
         // Present when status === 'pick_variant': one entry per sibling variant of the family.
-        axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour', 'mixed' or 'size_name'."),
+        axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour', 'mixed', 'size_name' or 'name'."),
         options: z.array(z.object({
           ean: z.string().describe("EAN of this exact variant — use it with get_best_price / optimize_cart."),
           size: z.string().nullable().optional(),
@@ -1218,6 +1218,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           // B-264b: without this the SDK's outputSchema validation would silently strip
           // the field from structuredContent (ChatGPT reads structuredContent only).
           donor_label: z.string().optional().describe("Verbatim variant/product name; use as the choice label when present."),
+          // B-275: same reason as donor_label above — without this key declared, the SDK
+          // silently strips product_name from structuredContent for a flat name-axis option
+          // (no size, no colour, no donor_label — this IS the only label).
+          product_name: z.string().optional().describe("Verbatim product name for a flat name-axis option; use as the choice label when present."),
           // B-256 Phase 2: a SCRAPING-family option carries NO per-variant price/stock
           // (one scraped page = one price for N variants — a per-variant number would be
           // fabricated), so the API sends null. Nullable+optional so the SDK's outputSchema
@@ -1270,8 +1274,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             // PRIMARY label (size appended for context), rendered whole (never truncated or
             // token-extracted; the field never contains a shop name). Without donor_label the
             // B-259 size/colour label is unchanged.
+            // B-275: a flat name-axis option has no size/colour at all — product_name (never
+            // co-present with donor_label; the two axes are mutually exclusive) IS the whole
+            // label, rendered whole, same no-token-extraction rule as donor_label.
             const label = o.donor_label
               ? `${o.donor_label}${o.size ? ` — Größe ${o.size}` : ''}`
+              : o.product_name
+              ? o.product_name
               : [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
                   .filter(Boolean).join(', ') || `Variante ${i + 1}`;
             // B-256 Phase 2: scraping-family options carry price/in_stock as null — omit
@@ -1550,5 +1559,8 @@ interface ResolveResult {
     // B-264b: verbatim donor product name (axis 'size_name' only) — the choice label
     // for a size collision. Never carries a shop attribution.
     donor_label?: string;
+    // B-275: verbatim product name (flat 'name' axis only) — the choice label when there
+    // is no size/colour/donor_label at all. Never co-present with donor_label.
+    product_name?: string;
   }>;
 }
