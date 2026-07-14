@@ -1274,15 +1274,25 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             // PRIMARY label (size appended for context), rendered whole (never truncated or
             // token-extracted; the field never contains a shop name). Without donor_label the
             // B-259 size/colour label is unchanged.
-            // B-275: a flat name-axis option has no size/colour at all — product_name (never
-            // co-present with donor_label; the two axes are mutually exclusive) IS the whole
-            // label, rendered whole, same no-token-extraction rule as donor_label.
+            // NAME_AXIS_DONOR_FIX Part C: Honest Floor parity with the website picker
+            // (VariantPicker.tsx). A flat name-axis option (product_name set, donor_label
+            // absent) MAY also carry a high-confidence structured size/colour fact — the
+            // main app only ever populates o.size/o.colour when variant_confidence='high'
+            // (gated upstream, never re-checked here). When present, that structured fact
+            // is the label (e.g. "Größe XXL, Farbe black"), NOT the raw donor product_name —
+            // the same size/colour join the size/colour/mixed axes already use below, just
+            // tried BEFORE the product_name fallback instead of after. No-op when the main
+            // app sends no size/colour for a name-axis option (today, flag off): the join is
+            // empty, falls through to product_name exactly as before — byte-identical.
+            const structuredLabel = [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
+              .filter(Boolean).join(', ');
             const label = o.donor_label
               ? `${o.donor_label}${o.size ? ` — Größe ${o.size}` : ''}`
+              : structuredLabel
+              ? structuredLabel
               : o.product_name
               ? o.product_name
-              : [o.size ? `Größe ${o.size}` : null, o.colour ? `Farbe ${o.colour}` : null]
-                  .filter(Boolean).join(', ') || `Variante ${i + 1}`;
+              : `Variante ${i + 1}`;
             // B-256 Phase 2: scraping-family options carry price/in_stock as null — omit
             // the segment entirely (never render a fabricated "0,00 €" or a false "nicht
             // auf Lager"). Feed options (number/boolean always set) render byte-identically.
