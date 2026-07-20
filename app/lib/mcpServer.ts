@@ -94,6 +94,44 @@ const singleShopNur = (deltaPercent: number): string =>
 // concepts never key off each other.
 type RenderProfile = 'claude' | 'openai';
 
+// ── B-309: honest availability for API-flagged variant-uncertain rows ────────────
+// The website API (B-301) may mark a row `variantUncertain: true` when it is a proven
+// variant family whose picked EAN's per-variant stock is NOT verified. Such a row must
+// never be crowned as the cheapest, and must assert neither "in stock" nor "out of
+// stock" — we don't know which variant it describes.
+//
+// Feature flag, default OFF. Unset / anything-but-'true' = OFF ⇒ byte-identical to
+// today on every path. Read at CALL TIME (never cached at module load) so a Vercel env
+// flip takes effect without a redeploy — matches the main app's convention.
+function b309StubUncertainEnabled(): boolean {
+  return process.env.B309_STUB_UNCERTAIN_ENABLED === 'true';
+}
+
+// The single choke point for the downgrade. Returns true ONLY when the flag is ON *and*
+// the API explicitly sent variantUncertain === true on this row. Field absent (older
+// API) or === false ⇒ false ⇒ today's behaviour. Every B-309 branch keys off this, so
+// flag OFF ⇒ every branch collapses to the pre-B-309 code.
+function isVariantUncertain(r: { variantUncertain?: boolean }): boolean {
+  return b309StubUncertainEnabled() && r.variantUncertain === true;
+}
+
+// Verbatim user-facing strings (German — the wording the website already uses). The
+// row label replaces the ✅/❌ icon entirely for an uncertain row.
+export const B309_LABEL_UNCERTAIN = "🔍 Verfügbarkeit prüfen";
+export const B309_ALL_UNCERTAIN_LINE =
+  "⚠️ Kein Shop mit bestätigter Verfügbarkeit — bei den mit „Verfügbarkeit prüfen“ markierten Zeilen ist die Variantenzuordnung nicht gesichert.";
+
+// Winner eligibility + row stock label as pure helpers, so the tests drive the SAME code
+// the tools run (not a copy). Both collapse to today's behaviour when the flag is OFF
+// (isVariantUncertain === false ⇒ `r.in_stock && !false` and the certain icon branch).
+export function b309WinnerEligible(r: { in_stock: boolean; variantUncertain?: boolean }): boolean {
+  return r.in_stock && !isVariantUncertain(r);
+}
+export function b309StockLabel(r: { in_stock: boolean; variantUncertain?: boolean }): string {
+  return isVariantUncertain(r) ? B309_LABEL_UNCERTAIN : (r.in_stock ? "✅" : "❌");
+}
+export { b309StubUncertainEnabled, isVariantUncertain };
+
 // Links directive that accompanies product results in the content block. The
 // 'claude' string is byte-identical to the historical inline literal; the
 // 'openai' string is tuned for ChatGPT's bare-URL rendering.
@@ -504,10 +542,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // B-169: the 🏆 / "best price" must go to the cheapest IN-STOCK shop, not the
         // cheapest by price alone. results is price-sorted, so the first in-stock row is
         // the cheapest available offer. null = every shop is out of stock (no trophy).
-        const cheapestInStock = results.find(r => r.in_stock) ?? null;
+        // B-309: an uncertain row can never be crowned — the winner is the cheapest row
+        // that is in_stock AND not variant-uncertain. Flag OFF ⇒ isVariantUncertain is
+        // always false ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
+        const cheapestInStock = results.find(b309WinnerEligible) ?? null;
         const productName = cheapest.product_name ?? "Product";
         const lines = results.map((r, i) => {
-          const stockIcon = r.in_stock ? "✅" : "❌";
+          // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
+          const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'get_best_price');
           return productEntry(
@@ -546,9 +588,21 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         // B-169: human-readable winner line. The in-stock winner is crowned; when every
         // shop is out of stock, state that plainly and crown nobody.
+        // B-309: no winner but ≥1 uncertain row ⇒ do NOT claim out-of-stock everywhere.
+        // Flag OFF ⇒ hasUncertain false ⇒ today's out-of-stock line byte-for-byte.
+        const hasUncertain = results.some(r => isVariantUncertain(r));
         const bestPriceLine = cheapestInStock
           ? `**Best price: ${formatEuro(cheapestInStock.price)} at ${cheapestInStock.shop}**`
+          : hasUncertain
+          ? B309_ALL_UNCERTAIN_LINE
           : `**Currently out of stock at every shop listed — no in-stock best price available.**`;
+
+        // B-309 observability: fire ONCE per response, only when ≥1 row was actually
+        // downgraded (flag ON + API flagged the row). Flag OFF ⇒ count 0 ⇒ no event.
+        const b309Downgraded = results.filter(r => isVariantUncertain(r)).length;
+        if (b309Downgraded > 0) {
+          trackMcpEvent("MCP Variant Uncertain Downgrade", { tool: "get_best_price", downgraded: b309Downgraded });
+        }
 
         return {
           ...mcpText(
@@ -561,7 +615,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               shop: r.shop,
               price: r.price,
               currency: "EUR",
-              availability: r.in_stock ? "in_stock" : "out_of_stock",
+              // B-309: claude profile only — never assert a stock state for an uncertain
+              // row. openai (renderProfile==='openai') is UNCONDITIONALLY today's value
+              // (B-046 in review). Flag OFF ⇒ isVariantUncertain false ⇒ today's value.
+              availability: (renderProfile !== 'openai' && isVariantUncertain(r)) ? "unknown" : (r.in_stock ? "in_stock" : "out_of_stock"),
               affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
             })),
             cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
@@ -1133,12 +1190,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const productName = results[0]!.product_name ?? "Product";
         // B-169: crown the cheapest IN-STOCK shop (price-sorted list → first in-stock row),
         // not the cheapest by price alone. null = every shop is out of stock (no trophy).
-        const cheapestInStock = results.find(r => r.in_stock) ?? null;
+        // B-309: uncertain row never crowned. Flag OFF ⇒ isVariantUncertain always false
+        // ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
+        const cheapestInStock = results.find(b309WinnerEligible) ?? null;
         let md = `## Where to Buy: ${productName}\n\nEAN: ${ean} · ${country} · ${results.length} shop(s) carry this product\n\n`;
 
         for (let i = 0; i < results.length; i++) {
           const r = results[i];
-          const stockIcon = r.in_stock ? "✅" : "❌";
+          // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
+          const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
           const link = buildGoUrl(r.shop_id, ean, 'find_alternatives');
           md += productEntry(
@@ -1150,11 +1210,23 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ) + `\n`;
         }
 
+        // B-309: no winner but ≥1 uncertain row ⇒ do NOT claim out-of-stock everywhere.
+        // Flag OFF ⇒ hasUncertain false ⇒ today's out-of-stock line byte-for-byte.
+        const hasUncertain = results.some(r => isVariantUncertain(r));
         if (!cheapestInStock) {
-          md += `\n⚠️ Currently out of stock at every shop listed above.\n`;
+          md += hasUncertain
+            ? `\n${B309_ALL_UNCERTAIN_LINE}\n`
+            : `\n⚠️ Currently out of stock at every shop listed above.\n`;
         }
 
         md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}`;
+
+        // B-309 observability: fire ONCE per response, only when ≥1 row was actually
+        // downgraded (flag ON + API flagged the row). Flag OFF ⇒ count 0 ⇒ no event.
+        const b309Downgraded = results.filter(r => isVariantUncertain(r)).length;
+        if (b309Downgraded > 0) {
+          trackMcpEvent("MCP Variant Uncertain Downgrade", { tool: "find_alternatives_for_product", downgraded: b309Downgraded });
+        }
 
         return {
           ...mcpText(md + footer(renderProfile)),
@@ -1165,7 +1237,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               shop: r.shop,
               price: r.price,
               currency: "EUR",
-              availability: r.in_stock ? "in_stock" : "out_of_stock",
+              // B-309: claude profile only. openai (renderProfile==='openai') is
+              // UNCONDITIONALLY today's value (B-046 in review). Flag OFF ⇒ today's value.
+              availability: (renderProfile !== 'openai' && isVariantUncertain(r)) ? "unknown" : (r.in_stock ? "in_stock" : "out_of_stock"),
               affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
             })),
             ...(renderProfile === 'openai'
@@ -1463,6 +1537,11 @@ interface EanResult {
   product_url: string | null;
   affiliate_link: string | null;
   image_url: string | null;
+  // B-309: optional. Set by the website API (B-301) to true when this row is a proven
+  // variant family whose picked EAN's per-variant stock is unverified. OPTIONAL is
+  // required for compatibility: absent (older API) or false must behave as today; only
+  // === true triggers the downgrade (see isVariantUncertain).
+  variantUncertain?: boolean;
 }
 
 interface ShippingTier {
