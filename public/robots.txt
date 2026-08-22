@@ -1,0 +1,5 @@
+# Bikefuchs MCP server — https://mcp.bikefuchs.com
+# MCP directory crawlers and agent registries are welcome to index this server;
+# they are our distribution channel (B-345). Full crawl allowed.
+User-agent: *
+Allow: /
