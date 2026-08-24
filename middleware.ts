@@ -27,6 +27,19 @@ const THROTTLE_TEXT =
   'Zu viele Anfragen — bitte einen Moment warten und erneut versuchen.';
 
 export async function middleware(req: NextRequest) {
+  // B-364: method gate (flag-gated, OFF unless the env var is exactly "true").
+  // Requests that are neither POST (JSON-RPC tool calls) nor DELETE (MCP session
+  // teardown) carry no harvestable payload, so skip the rate-limit path entirely
+  // and forward untouched — reaching the route exactly as if no middleware ran.
+  // When the flag is unset/anything-else, behaviour is byte-identical to before.
+  if (
+    process.env.B364_METHOD_GATE_ENABLED === 'true' &&
+    req.method !== 'POST' &&
+    req.method !== 'DELETE'
+  ) {
+    return NextResponse.next();
+  }
+
   const source = clientIp(req.headers);
 
   // Allowlisted AI egress: skip both limits entirely (no key → no recording).
