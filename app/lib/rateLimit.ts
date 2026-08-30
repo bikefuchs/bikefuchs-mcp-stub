@@ -43,6 +43,41 @@ export type LimitDecision =
 export async function checkLimits(source: string): Promise<LimitDecision> {
   if (!redis || !burst) return { ok: true }; // fail-open
   try {
+    // B-368 (flag-gated, OFF unless the env var is exactly "true"): issue the two
+    // Upstash round-trips CONCURRENTLY instead of sequentially. There is no data
+    // dependency between them — burst.limit() takes only `source` and never reads
+    // `count`; the only coupling was the early return below. Results are evaluated
+    // in the SAME order as the sequential path (coverage first, then burst), so the
+    // returned LimitDecision — ok / reason / retryAfter — is identical for identical
+    // inputs on both paths.
+    //
+    // ACCEPTED SEMANTIC DIFFERENCE: on the parallel path the burst counter is
+    // INCREMENTED even when the coverage cap has already been exceeded, because both
+    // calls are issued before either result is examined. On the sequential path a
+    // coverage-capped request returns at the early return and never touches the burst
+    // window. A source that is already coverage-capped therefore consumes burst
+    // budget it would not have consumed before. That budget is per-minute and the
+    // source is already being refused, so the observable outcome is unchanged.
+    //
+    // Both calls stay inside this try/catch. Promise.all rejects on the FIRST
+    // rejection, and that rejection propagates out of the await here into the catch
+    // below, which returns { ok: true } — so a Redis error still fails OPEN exactly
+    // as before. The flag is read at CALL TIME, never cached at module scope.
+    if (process.env.B368_PARALLEL_LIMITS_ENABLED === 'true') {
+      const [count, r] = await Promise.all([
+        redis.pfcount(covKey(source)),
+        burst.limit(source),
+      ]);
+      if (count >= COVERAGE_CAP) {
+        return { ok: false, reason: 'coverage', retryAfter: 3600 };
+      }
+      if (!r.success) {
+        const retryAfter = Math.max(1, Math.ceil((r.reset - Date.now()) / 1000));
+        return { ok: false, reason: 'burst', retryAfter };
+      }
+      return { ok: true };
+    }
+
     const count = await redis.pfcount(covKey(source));
     if (count >= COVERAGE_CAP) {
       return { ok: false, reason: 'coverage', retryAfter: 3600 };
