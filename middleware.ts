@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkLimits, clientIp, RL_SOURCE_HEADER } from './app/lib/rateLimit';
 import { isAiEgress } from './app/lib/aiEgressCidrs';
+import { isProbeEgress } from './app/lib/probeCidrs';
 
 export const config = {
   matcher: ['/mcp', '/mcp/openai'],
@@ -45,6 +46,25 @@ export async function middleware(req: NextRequest) {
   // Allowlisted AI egress: skip both limits entirely (no key → no recording).
   if (isAiEgress(source)) {
     return NextResponse.next();
+  }
+
+  // B-366: known MCP health probes (handshake-only, never harvest an EAN) — see
+  // app/lib/probeCidrs.ts. The match is computed UNCONDITIONALLY in both flag
+  // states so the shadow count is complete; the flag controls ONLY whether the
+  // early return is taken.
+  // Read inside the function body (never at module scope): a module-scope read would
+  // capture the value once per Edge isolate boot. Note that flipping the env var still
+  // requires a redeploy of the production deployment — Vercel binds env vars at deploy
+  // time.
+  const isProbe = isProbeEgress(source);
+  if (isProbe) {
+    const probeFlagOn = process.env.B366_PROBE_ALLOWLIST_ENABLED === 'true';
+    console.info(
+      `[MW] B366 probe: ip=${source} match=true flag=${probeFlagOn ? 'on' : 'off'} applied=${probeFlagOn ? 'skipped' : 'limited'} ${probeFlagOn ? 'B366_SKIP_APPLIED' : 'B366_SKIP_SHADOW'}`
+    );
+    if (probeFlagOn) {
+      return NextResponse.next();
+    }
   }
 
   const decision = await checkLimits(source);
