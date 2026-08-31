@@ -229,32 +229,48 @@ const DISPLAY_NAME_TO_SLUG: Record<string, string> = {
 };
 
 // ── Shop roster ────────────────────────────────────────────────────────────────
-// Single source of truth: src/config/shops.ts in the website repo.
-// Update both files whenever the shop list changes.
-// FEED_SHOPS = shops shown on /mcp/openai (ChatGPT). fahrrad-xxl is a FEED shop on the
-// website + Claude /mcp, but stays OFF /mcp/openai (ChatGPT roster frozen at 7 until
-// B-046), so — like bike-components — it lives in the openai-hidden sets below, NOT here.
-const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike'];
-const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount', 'bike-components', 'fahrrad-xxl'];
+// B-390 CROSS-REFERENCE. There is NO single file that owns the roster. Six locations must
+// be kept in step; changing one alone silently breaks a channel. The claim this comment
+// used to make ("Single source of truth: src/config/shops.ts … Update both files") was
+// false — "both" is two, and there are six, across two repos:
+//   THIS repo (bikefuchs-mcp-stub):
+//     1. app/lib/mcpServer.ts   — this block: per-tool filtering + the advertised shop count
+//     2. app/lib/serverCard.ts  — both server cards' prose roster + counts
+//   Main app (mattchuk17/bikefuchs):
+//     3. src/config/shops.ts                  — SHOPS: isFeedShop, slugs, affiliate ids
+//     4. src/lib/search/shopLookup.ts         — ALL_FEED_SHOPS / OPENAI_EXCLUDED_FEED_SHOPS,
+//                                               the SERVER-side gate for resolve_product and
+//                                               optimize_cart (the stub's per-tool filters do
+//                                               not apply there)
+//     5. src/app/api/shops/shipping/route.ts  — SHOP_NAME_ALIASES → shipping_costs keys
+//     6. src/app/mcp-openai/page.tsx and src/app/mcp/page.tsx — public documentation rosters
+// Consolidating them is deliberately OUT of scope (B-390 full). These cross-references are
+// the whole of the B-390 work landed here.
+//
+// B-392: FEED_SHOPS = the shops exposed on /mcp/openai (ChatGPT) — now 9. bike-components and
+// fahrrad-xxl were always feed shops on the website and Claude /mcp; as of B-392 they are on
+// the ChatGPT roster too. Only the 2 genuine, non-monetized scraping shops stay hidden there.
+const FEED_SHOPS = ['BOC24', 'Fahrrad24', 'Rose Bikes', 'fahrrad-teile.shop', 'Bike Mailorder', 'Maciag Offroad', 'HiBike', 'bike-components', 'fahrrad-xxl'];
+const SCRAPING_SHOPS = ['BIKE24', 'Bike-Discount'];
 const ALL_SHOPS = [...FEED_SHOPS, ...SCRAPING_SHOPS];
-const SHOP_COUNT = ALL_SHOPS.length; // 11 — update when shops.ts changes
+const SHOP_COUNT = ALL_SHOPS.length; // 11 — UNCHANGED by B-392 (7+4 became 9+2); update when shops.ts changes
 
 // ── Feed-only mode (/mcp/openai) ────────────────────────────────────────────
-// The 7 authorized feed shops are exposed; the other shops must never be revealed
-// or counted on /mcp/openai: the 2 scraping shops (BIKE24, Bike-Discount),
-// bike-components (feed, IP-hygiene), and fahrrad-xxl (feed, ChatGPT roster frozen
-// at 7 until B-046). All four are excluded from openai via the sets below.
+// The 9 authorized feed shops are exposed. ONLY the 2 scraping shops (BIKE24,
+// Bike-Discount) must never be revealed or counted on /mcp/openai.
+// ⚠️ DO NOT empty the three deny-sets below. They are the ONLY mechanism keeping BIKE24 and
+// Bike-Discount out of get_shop_info, get_shipping_breakdown and resolve_product on that
+// endpoint — B-392 removed the bike-components / fahrrad-xxl entries from them, nothing else.
 // Filtering keys, by the identifier each tool actually carries:
 //   - shop_id (internal id)  → search_product, get_best_price, find_alternatives, resolve_product
 //   - display name (shipping_costs table key) → get_shop_info
 //   - free-text shop input    → get_shipping_breakdown
-const FEED_SHOP_IDS = new Set(['boc24', 'fahrrad24', 'rosebikes', 'fahrradteile', 'bmo', 'maciag', 'hibike']);
-const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount', 'bike-components', 'fahrradxxl']);
-// Exact table-side display names of the openai-hidden shops (note capital C in
-// "Bike-Components" as stored in shipping_costs; lower-case variants kept defensively).
-const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount', 'Bike-Components', 'bike-components', 'fahrrad-xxl']);
+const FEED_SHOP_IDS = new Set(['boc24', 'fahrrad24', 'rosebikes', 'fahrradteile', 'bmo', 'maciag', 'hibike', 'bike-components', 'fahrradxxl']);
+const SCRAPING_SHOP_IDS = new Set(['bike24', 'bike-discount']);
+// Exact table-side display names of the openai-hidden shops, as stored in shipping_costs.
+const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount']);
 // Lower-cased free-text forms a user might pass to get_shipping_breakdown.
-const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount', 'bike-components', 'bike components', 'fahrrad-xxl', 'fahrradxxl', 'fahrrad xxl']);
+const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount']);
 
 // B-392: feed-only query suffix for /api/products/{ean}. That route previously had no
 // feedOnly awareness, so a /mcp/openai get_best_price or find_alternatives_for_product call
@@ -348,7 +364,7 @@ Workflow for cart optimization: When the user wants to optimize a cart, first ca
 }
 
 function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderProfile: RenderProfile }) {
-  // Feed-only mode (/mcp/openai) exposes 7 shops; default mode exposes all 10.
+  // Feed-only mode (/mcp/openai) exposes 9 shops; default mode exposes all 11.
   const shopCount = feedOnly ? FEED_SHOPS.length : SHOP_COUNT;
   const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: buildServerInstructions(shopCount) });
 
@@ -1038,8 +1054,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const data = await apiJson<{ shops?: Record<string, Record<string, ShippingCountryInfo>>; error?: string }>("/api/shops/shipping");
 
         const shops = data.shops ?? {};
-        // Feed-only mode: drop the 3 scraping shops by their exact shipping_costs
-        // table display names (e.g. "Bike-Components" with capital C).
+        // Feed-only mode: drop the 2 scraping shops (BIKE24, Bike-Discount) by their exact
+        // shipping_costs table display names. B-392: bike-components and fahrrad-xxl are on
+        // the openai roster now and must NOT be filtered out here.
         const shopEntries = Object.entries(shops)
           .filter(([name]) => !feedOnly || !SCRAPING_DISPLAY_NAMES.has(name));
         let md = `## Bikefuchs — Shop Shipping Overview\n\n`;
@@ -1132,7 +1149,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
     async ({ shop, country, cart_value }) => {
       trackMcpEvent("MCP Shipping", { shop });
       console.info(`[MCP] get_shipping_breakdown: shop="${shop}" country=${country} cart=€${cart_value}`);
-      // Feed-only mode: refuse the 3 scraping shops as if unsupported.
+      // Feed-only mode: refuse the 2 scraping shops (BIKE24, Bike-Discount) as if unsupported.
       if (feedOnly && SCRAPING_SHOP_INPUTS.has(shop.trim().toLowerCase())) {
         return mcpError(`No shipping data found for shop "${shop}". It is not a supported shop.${footer(renderProfile)}`);
       }

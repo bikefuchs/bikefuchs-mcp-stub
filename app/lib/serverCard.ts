@@ -1,10 +1,20 @@
 // Shared MCP server-card builder.
 //
-// buildServerCard(false) reproduces the original 10-shop card byte-for-byte
-// (served at /.well-known/mcp/server-card.json).
-// buildServerCard(true) is the feed-only (7-shop) variant for the /mcp/openai
+// buildServerCard(false) is the 11-shop Claude card, served at
+// /.well-known/mcp/server-card.json.
+// buildServerCard(true) is the feed-only 9-shop variant for the /mcp/openai
 // endpoint (served at /.well-known/mcp/openai/server-card.json) — it never
-// names or counts the 3 scraping shops.
+// names or counts the 2 scraping shops (BIKE24, Bike-Discount).
+//
+// ⚠️ Only the eight `feedOnly ? … : …` ternaries below differ per channel. EVERYTHING
+// else in the returned object is SHARED, so an edit outside a ternary lands on both
+// documents at once — including the openai card, whose strings OpenAI froze at review
+// time. Anchor every edit on the `? ` (openai) or `: ` (claude) prefix.
+//
+// B-390 CROSS-REFERENCE — the roster also lives in app/lib/mcpServer.ts (FEED_SHOPS and
+// the deny-sets), and in the main app at src/config/shops.ts, src/lib/search/shopLookup.ts,
+// src/app/api/shops/shipping/route.ts and src/app/mcp-openai/page.tsx. See the block comment
+// at the top of mcpServer.ts's roster section for the full list.
 
 export const CARD_HEADERS = {
   "Content-Type": "application/json",
@@ -17,10 +27,10 @@ export const CARD_HEADERS = {
 export function buildServerCard(feedOnly: boolean) {
   // Feed-only card leads with the optimization sentence (we run the optimization
   // service), then the comparison sentence — aligned with OpenAI's stance against
-  // pass-through/aggregator apps. The feed-only (openai) 7-shop string is unchanged
-  // (fahrrad-xxl stays off openai); the default Claude card is 11 shops.
+  // pass-through/aggregator apps. B-392: the feed-only (openai) card is now 9 shops
+  // (bike-components + fahrrad-xxl added); the default Claude card stays 11.
   const description = feedOnly
-    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 7 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, and HiBike. Supports DE and AT markets."
+    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 9 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers ~145,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, bike-components, and fahrrad-xxl. Supports DE and AT markets."
     : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 11 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers ~120,000 products from BOC24, Fahrrad24, ROSE Bikes, fahrrad-teile.shop, Bike Mailorder, Maciag Offroad, HiBike, BIKE24, Bike-Discount, bike-components, and fahrrad-xxl. Supports DE and AT markets.";
 
   // Feed-only card leads its title with optimization; default title unchanged.
@@ -38,11 +48,11 @@ export function buildServerCard(feedOnly: boolean) {
     : "https://mcp.bikefuchs.com/mcp";
 
   const searchDescription = feedOnly
-    ? "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 7 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts."
+    ? "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 9 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts."
     : "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 11 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts.";
 
   const bestPriceDescription = feedOnly
-    ? "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 7 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links."
+    ? "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 9 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links."
     : "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 11 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.";
 
   const shippingShopExample = feedOnly
