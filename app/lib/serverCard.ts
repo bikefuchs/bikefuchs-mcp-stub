@@ -39,11 +39,11 @@ export function buildServerCard(feedOnly: boolean) {
 
   const searchDescription = feedOnly
     ? "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 7 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts."
-    : "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 10 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts.";
+    : "Find and compare prices for bicycle parts, components, accessories, and cycling clothing across 11 German and Austrian bike shops. Search by product name, brand, or model number. Returns real-time prices, stock availability, and direct purchase links. Covers MTB, road bike, gravel, e-bike, and city bike parts.";
 
   const bestPriceDescription = feedOnly
     ? "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 7 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links."
-    : "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 10 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.";
+    : "Look up a specific bicycle product by its EAN/GTIN barcode number and find the best price across all 11 shops. Returns prices from every shop that carries the product, sorted cheapest first, with stock status and affiliate purchase links.";
 
   const shippingShopExample = feedOnly
     ? "Shop identifier (e.g., 'rosebikes', 'boc24')"
