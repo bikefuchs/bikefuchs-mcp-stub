@@ -71,6 +71,37 @@ const PILOT_TELL_USER_BEST_PRICE =
 const PILOT_TELL_USER_OPTIMIZE_CART =
   "Show the per-shop split (which items at which shop, subtotal and shipping per shop), the grand total including shipping, and the savings. If single_shop_option is present, also mention it. Surface every item's bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text.";
 
+// ── B-398: degraded-search wording ───────────────────────────────────────────
+// /api/products/search used to answer 500 when the product index could not be searched,
+// which made the host abandon the tool outright (observed 2026-08-31: the model gave up
+// after two failures and answered from its own web search). It now answers 200 with
+// `degraded: true`.
+//
+// That makes the empty-result sentence dangerous. "No products found for X" is a positive
+// assertion that the product does not exist; after a failed search it is simply false. These
+// four strings are the honest alternatives.
+//
+// Delivery uses ONLY mechanisms that already exist, so no advertised metadata moves:
+//   - claude → a conditional sentence in the rendered content block, exactly as
+//     WARMING_REFRESH_DIRECTIVE and DISCLOSURE_DIRECTIVE already are
+//   - openai → the runtime VALUE of the existing `tell_user` field. No new schema field:
+//     that would be an OpenAI-frozen metadata change needing re-version and review.
+//
+// Wording is architecture-neutral per B-133 — "Produktdatenbank", never "feed" or "scraper".
+const DEGRADED_EMPTY_DE = (q: string, country: string) =>
+  `⚠️ Die Produktdatenbank konnte für „${q}" (${country}) gerade nicht durchsucht werden – dieses Ergebnis ist daher unvollständig und bedeutet NICHT, dass es das Produkt nicht gibt.\n\n` +
+  `IMPORTANT: Do NOT tell the user the product does not exist, is unavailable, or was not found — the search did not complete. Tell them the product database could not be searched right now, that this is a temporary problem on our side, and offer to try again in a moment. Do not substitute your own knowledge or a web search for the missing result.`;
+
+const DEGRADED_PARTIAL_DE =
+  `⚠️ Unvollständiges Ergebnis: Ein Teil der Produktdatenbank konnte gerade nicht durchsucht werden. Es können Angebote fehlen, und der günstigste Preis ist möglicherweise nicht dabei.\n\n` +
+  `IMPORTANT: Show the results below, but tell the user this list is incomplete and that cheaper offers may be missing. Do not present the cheapest row shown as if it were the confirmed best price.`;
+
+const DEGRADED_TELL_USER =
+  "The product database could not be searched for this query, so no result could be produced. Do NOT tell the user the product does not exist or was not found — the search did not complete. Say that the product database could not be searched right now, that it is a temporary problem on our side, and offer to try again in a moment. Do not substitute your own knowledge or a web search. Respond in the user's language. End with the `disclosure` text.";
+
+const DEGRADED_TELL_USER_PARTIAL =
+  "Part of the product database could not be searched, so this list is incomplete and cheaper offers may be missing. Present the products shown with their price, shop and bikefuchs.com/go/ link, but tell the user the list is incomplete and do not present the cheapest row as the confirmed best price. Respond in the user's language. End with the `disclosure` text.";
+
 // Round a monetary number to 2 decimals. Used ONLY for the openai-profile
 // structuredContent (fixes float artifacts like 97.30000000000001). The claude
 // path keeps the raw upstream numbers untouched.
@@ -378,7 +409,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         if (category) params.set('category', category);
         // Feed-only mode: ask the API to skip scraping shops so results fill correctly.
         if (feedOnly) params.set('feedOnly', 'true');
-        const data = await apiJson<{ results?: ProductSearchResult[]; total?: number; error?: string }>(`/api/products/search?${params}`);
+        const data = await apiJson<{ results?: ProductSearchResult[]; total?: number; error?: string; degraded?: boolean; degraded_reason?: string }>(`/api/products/search?${params}`);
+
+        // B-398: the API now answers 200 with `degraded: true` when the product index could
+        // not be searched, instead of a 500 that makes the host abandon the tool. That makes
+        // the sentence below load-bearing: an empty list after a failure must NOT be rendered
+        // as "no products found", which asserts the product does not exist.
+        const degraded = data.degraded === true;
 
         // Defensive client-side filter (the API feedOnly flag already excludes scraping rows).
         const filtered = feedOnly && data.results
@@ -391,14 +428,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const results = renderProfile === 'openai' ? filtered.slice(0, 8) : filtered;
 
         if (results.length === 0) {
+          // Genuinely empty vs. could-not-look. Same shape, opposite meaning.
           return {
-            ...mcpText(`No products found for "${q}" in ${country}.${footer(renderProfile)}`),
+            ...mcpText(`${degraded ? DEGRADED_EMPTY_DE(q, country) : `No products found for "${q}" in ${country}.`}${footer(renderProfile)}`),
             structuredContent: {
               query: q,
               results: [],
               total_results: 0,
               ...(renderProfile === 'openai'
-                ? { disclosure: footer(renderProfile), tell_user: TELL_USER_SEARCH }
+                ? { disclosure: footer(renderProfile), tell_user: degraded ? DEGRADED_TELL_USER : TELL_USER_SEARCH }
                 : {}),
             },
           };
@@ -420,7 +458,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):\n\n${lines.join("\n\n")}\n\n${PRESENT_LIST_DIRECTIVE}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
+            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):${degraded ? `\n\n${DEGRADED_PARTIAL_DE}` : ''}\n\n${lines.join("\n\n")}\n\n${PRESENT_LIST_DIRECTIVE}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
           ),
           structuredContent: {
             query: q,
@@ -445,7 +483,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     { type: "price_check", tool: "get_best_price", hint: "Preis eines gewählten Treffers über alle Shops vergleichen", note: "genau eine EAN pro Aufruf" },
                   ],
                   disclosure: footer(renderProfile),
-                  tell_user: TELL_USER_SEARCH,
+                  tell_user: degraded ? DEGRADED_TELL_USER_PARTIAL : TELL_USER_SEARCH,
                 }
               : {
                   next_steps: [
