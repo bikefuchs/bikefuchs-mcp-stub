@@ -256,6 +256,16 @@ const SCRAPING_DISPLAY_NAMES = new Set(['BIKE24', 'Bike-Discount', 'Bike-Compone
 // Lower-cased free-text forms a user might pass to get_shipping_breakdown.
 const SCRAPING_SHOP_INPUTS = new Set(['bike24', 'bike-discount', 'bike-components', 'bike components', 'fahrrad-xxl', 'fahrradxxl', 'fahrrad xxl']);
 
+// B-392: feed-only query suffix for /api/products/{ean}. That route previously had no
+// feedOnly awareness, so a /mcp/openai get_best_price or find_alternatives_for_product call
+// still fired the website's bike-components scrape fallback (live scrape + Unavailable-marker
+// write) even though the FEED_SHOP_IDS allow-list then dropped the row. Same opt-in
+// query-param mechanism search_product already uses; emitted ONLY when feedOnly is true, so
+// the claude URL stays byte-identical.
+function feedOnlyParam(feedOnly: boolean): string {
+  return feedOnly ? '&feedOnly=true' : '';
+}
+
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
   if (!shopId) return "";
   const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
@@ -545,7 +555,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Best Price", { ean });
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
-        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}`);
+        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter; cheapest
         // is recomputed from the filtered (still cheapest-first) list.
@@ -1202,7 +1212,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Alternatives", { ean });
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
-        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}`);
+        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter.
         const results = feedOnly && data.results
