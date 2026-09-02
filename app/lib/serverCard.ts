@@ -31,8 +31,8 @@ export function buildServerCard(feedOnly: boolean) {
   // merchants any more — the roster is live state, so it is served by get_shop_info
   // rather than frozen into reviewed metadata.
   const description = feedOnly
-    ? "Optimize multi-product shopping carts to minimize total cost including shipping across 9 German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops."
-    : "Compare prices for bicycle parts, components, accessories, and cycling clothing across 11 German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops.";
+    ? "Optimize multi-product shopping carts to minimize total cost including shipping across German and Austrian bike shops. Compare prices for bicycle parts, components, accessories, and cycling clothing. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops."
+    : "Compare prices for bicycle parts, components, accessories, and cycling clothing across German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops.";
 
   // Feed-only card leads its title with optimization; default title unchanged.
   const title = feedOnly
