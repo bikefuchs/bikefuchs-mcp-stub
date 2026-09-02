@@ -51,7 +51,7 @@ export function buildServerCard(feedOnly: boolean) {
 
   const resolveUrlExample = feedOnly
     ? "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/...')"
-    : "Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')";
+    : "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/p/sram-pc-951-9-fach-kette-159128')";
 
   return {
     $schema: "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
