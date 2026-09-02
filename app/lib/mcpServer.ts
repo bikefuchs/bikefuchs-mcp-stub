@@ -341,8 +341,8 @@ const TOOL_HINTS = {
   openWorldHint: false,
 } as const;
 
-function buildServerInstructions(shopCount: number): string {
-  return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across ${shopCount} German/Austrian online bike shops. It covers 120,000+ products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
+function buildServerInstructions(): string {
+  return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across German/Austrian online bike shops. It covers over 100,000 products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
 
 WORKFLOW GUIDE:
 - Single product search: Use search_product with keywords → returns products with EANs and prices
@@ -366,7 +366,7 @@ Workflow for cart optimization: When the user wants to optimize a cart, first ca
 function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderProfile: RenderProfile }) {
   // Feed-only mode (/mcp/openai) exposes 9 shops; default mode exposes all 11.
   const shopCount = feedOnly ? FEED_SHOPS.length : SHOP_COUNT;
-  const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: buildServerInstructions(shopCount) });
+  const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: buildServerInstructions() });
 
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.registerTool(
@@ -1330,8 +1330,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       description: "Turn a product page URL from a supported shop into structured product data — EAN barcode, price, stock status, and a purchase link — so the EAN can then be used with get_best_price or optimize_cart. Multi-variant product families return a labeled candidate list (size/colour, price, EAN per variant): ask the user to pick a variant, then use that exact variant's EAN with the other tools.",
       inputSchema: {
         url: z.string().url().describe(feedOnly
-          ? "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/...')"
-          : "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/p/sram-pc-951-9-fach-kette-159128')"),
+          ? "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/p/<product-name>-<id>')"
+          : "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/p/<product-name>-<id>')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
       },
       outputSchema: {
