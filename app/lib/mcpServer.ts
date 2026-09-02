@@ -1304,7 +1304,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       inputSchema: {
         url: z.string().url().describe(feedOnly
           ? "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/...')"
-          : "Product page URL from a supported shop (e.g. 'https://www.bike24.de/p2462871.html')"),
+          : "Product page URL from a supported shop (e.g. 'https://www.rosebikes.de/p/sram-pc-951-9-fach-kette-159128')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
       },
       outputSchema: {
