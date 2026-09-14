@@ -181,6 +181,30 @@ function linksDirective(profile: RenderProfile): string {
 // the plain label and appends the bare /go/ URL on its own indented line
 // (only when a URL exists). resolve_product keeps its own conditional because
 // its historical claude output drops the brackets entirely when url is empty.
+/**
+ * B-412 — the variant label segment of a product line.
+ *
+ * The main app emits `variant_size` / `variant_colour` per FEED result on
+ * /api/products/search and /api/products/[ean]. Both values are ALREADY gated there
+ * (src/lib/variant/honestFloor.ts: confidence floor, split-range guard, contamination
+ * guard, title-casing). This function therefore does exactly one thing: it formats.
+ * It does NOT re-gate, re-case, filter, translate, validate or truncate — a second
+ * copy of a rule that already has one home is how the two sides drift apart (B-072).
+ * Value present ⇒ print it verbatim. Null or absent ⇒ print nothing.
+ *
+ * NO AXIS NAME, deliberately. `size` carries a clothing size on apparel ("M",
+ * "43 1/3 (9 UK)") but a component measurement on parts — for ONE EAN
+ * (0710845915598) bmo stores "172,5 mm" (crank length) while bike-components stores
+ * "42" (chainring teeth). We do not know which axis a given value is on, so we do not
+ * name it: "Gr. 42" for a chainring would be a false statement.
+ *
+ * Colour always precedes size. Separator is " · ", matching the EAN segment already on
+ * the line. Both absent ⇒ empty string ⇒ the line is byte-identical to pre-B-412.
+ */
+function variantSegment(r: { variant_size?: string | null; variant_colour?: string | null }): string {
+  return [r.variant_colour, r.variant_size].filter(Boolean).map(v => ` · ${v}`).join('');
+}
+
 function productEntry(
   profile: RenderProfile,
   head: string,
@@ -478,7 +502,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `${i + 1}. `,
             `${p.product_name} — ${p.shop}`,
             link,
-            ` — **${formatEuro(p.price)}** ${stockIcon}${p.ean ? ` · EAN ${p.ean}` : ""}`,
+            ` — **${formatEuro(p.price)}** ${stockIcon}${variantSegment(p)}${p.ean ? ` · EAN ${p.ean}` : ""}`,
           );
         });
 
@@ -621,7 +645,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `${i + 1}. `,
             `${productName} — ${r.shop}`,
             link,
-            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}`,
+            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}`,
           );
         });
 
@@ -1271,7 +1295,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `${i + 1}. `,
             `${productName} — ${r.shop}`,
             link,
-            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}`,
+            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}`,
           ) + `\n`;
         }
 
@@ -1588,6 +1612,11 @@ interface ProductSearchResult {
   product_url: string | null;
   affiliate_link: string | null;
   image_url: string | null;
+  // B-412: pre-gated variant label from the main app (honestFloor.ts). OPTIONAL —
+  // a scraped-half row never carries them, and an older API sends neither. Rendered
+  // verbatim by variantSegment; never re-gated here.
+  variant_size?: string | null;
+  variant_colour?: string | null;
 }
 
 interface EanResult {
@@ -1607,6 +1636,12 @@ interface EanResult {
   // required for compatibility: absent (older API) or false must behave as today; only
   // === true triggers the downgrade (see isVariantUncertain).
   variantUncertain?: boolean;
+  // B-412: pre-gated variant label from the main app (honestFloor.ts). OPTIONAL — a
+  // scraping-shop row never carries them, and an older API sends neither. Unrelated to
+  // variantUncertain above: that flags "we don't know WHICH variant this row is", these
+  // are the attributes of a row whose variant IS known. Rendered verbatim.
+  variant_size?: string | null;
+  variant_colour?: string | null;
 }
 
 interface ShippingTier {
