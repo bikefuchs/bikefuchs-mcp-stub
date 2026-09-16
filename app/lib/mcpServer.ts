@@ -46,6 +46,27 @@ const WARMING_REFRESH_DIRECTIVE =
 const PRESENT_LIST_DIRECTIVE =
   "IMPORTANT: Show ALL returned products as a ranked list, cheapest first — never collapse them to a single product, summarize them away, or omit the cheapest result.";
 
+// B-422: shared model-facing directive that keeps the B-412 variant label on the
+// product line. Observed 2026-09-14 in two client sessions: the model rewrote our
+// output and dropped the label (tool text carried "· Standard · Ø160mm", the answer
+// carried none of it) — which makes two identically named variants indistinguishable.
+//
+// Deliberately says "SOME product lines": the label is per-row optional. It is absent
+// on every optimize_cart line (no label there yet — B-421), on rows below the main
+// app's confidence floor, and on any row whose variant attributes the API did not send.
+// A directive claiming every line carries one would be false.
+//
+// The "never add a label to a line that has none" half is the Honest-Floor guard: a
+// model told the label matters could otherwise invent one from the product name, which
+// is exactly what variantSegment's format-only contract (see below) exists to prevent.
+//
+// Single source of truth, referenced in BOTH profiles per the parity rule, exactly like
+// PRESENT_LIST_DIRECTIVE above: emitted in the claude content block AND appended to the
+// three openai `tell_user` values. Declared before TELL_USER_SEARCH to avoid a const
+// temporal-dead-zone reference.
+export const VARIANT_LABEL_DIRECTIVE =
+  "⚠️ IMPORTANT: Some product lines show a variant label (colour and/or size) right before the EAN. When you show such a product, keep that label unchanged on the same line — it is the only thing that distinguishes identically named variants. Never add a label to a line that has none, and do not rewrite product names.";
+
 // ── B-162 pilot (openai profile only) ────────────────────────────────────────
 // Disclosure + model-facing guidance carried INSIDE structuredContent, so the
 // programmatic ChatGPT channel (which reads structuredContent, not content) can
@@ -55,20 +76,26 @@ const PRESENT_LIST_DIRECTIVE =
 // constant verbatim (single source of truth) on every tool — this REPLACES the
 // pilot's interim wording on get_best_price/optimize_cart. `tell_user` is the
 // per-tool model-facing instruction; each one ends with the `disclosure` text.
-const TELL_USER_SEARCH =
+// B-422: the four tell_user constants below are EXPORTED so scripts/test-b422.ts can
+// assert the directive's presence/absence against the real values rather than a copy
+// (same reason the B-309 helpers are exported — see scripts/test-b309.ts). Export only:
+// no value, wording or usage changes with it.
+export const TELL_USER_SEARCH =
   "Present the found products with their price, shop, and clickable bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. Do not auto-chain — offer the user the two next_steps as a choice. " +
-  PRESENT_LIST_DIRECTIVE;
-const TELL_USER_ALTERNATIVES =
-  "Present each alternative with price, shop, and its bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text.";
+  PRESENT_LIST_DIRECTIVE + " " + VARIANT_LABEL_DIRECTIVE;
+export const TELL_USER_ALTERNATIVES =
+  "Present each alternative with price, shop, and its bikefuchs.com/go/ link. Respond in the user's language. End with the `disclosure` text. " +
+  VARIANT_LABEL_DIRECTIVE;
 const TELL_USER_RESOLVE =
   "Confirm the resolved product, then offer the price check via the next_step. Show the bikefuchs.com/go/ link. End with the `disclosure` text.";
 const TELL_USER_SHOP_INFO =
   "Present the compared shops with their shipping cost tiers and free-shipping thresholds. For an exact figure, point to get_shipping_breakdown (next_step). End with the `disclosure` text.";
 const TELL_USER_SHIPPING =
   "Present the shipping cost for the given cart value, the free-shipping threshold and any gap. End with the `disclosure` text.";
-const PILOT_TELL_USER_BEST_PRICE =
-  "Show the cheapest shop with its price and clickable purchase link, then the other shops with price and link. Always surface every bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text.";
-const PILOT_TELL_USER_OPTIMIZE_CART =
+export const PILOT_TELL_USER_BEST_PRICE =
+  "Show the cheapest shop with its price and clickable purchase link, then the other shops with price and link. Always surface every bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text. " +
+  VARIANT_LABEL_DIRECTIVE;
+export const PILOT_TELL_USER_OPTIMIZE_CART =
   "Show the per-shop split (which items at which shop, subtotal and shipping per shop), the grand total including shipping, and the savings. If single_shop_option is present, also mention it. Surface every item's bikefuchs.com/go/ link. Respond in the user's language. End your reply with the `disclosure` text.";
 
 // ── B-398: degraded-search wording ───────────────────────────────────────────
@@ -201,7 +228,7 @@ function linksDirective(profile: RenderProfile): string {
  * Colour always precedes size. Separator is " · ", matching the EAN segment already on
  * the line. Both absent ⇒ empty string ⇒ the line is byte-identical to pre-B-412.
  */
-function variantSegment(r: { variant_size?: string | null; variant_colour?: string | null }): string {
+export function variantSegment(r: { variant_size?: string | null; variant_colour?: string | null }): string {
   return [r.variant_colour, r.variant_size].filter(Boolean).map(v => ` · ${v}`).join('');
 }
 
@@ -508,7 +535,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):${degraded ? `\n\n${DEGRADED_PARTIAL_DE}` : ''}\n\n${lines.join("\n\n")}\n\n${PRESENT_LIST_DIRECTIVE}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
+            `## Product Search: "${q}" (${country})\n\nFound ${total} result(s):${degraded ? `\n\n${DEGRADED_PARTIAL_DE}` : ''}\n\n${lines.join("\n\n")}\n\n${PRESENT_LIST_DIRECTIVE}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n💡 Next steps: call get_best_price(ean) to compare prices across all ${shopCount} shops, or optimize_cart(eans: [...]) to find the cheapest total for multiple products including shipping.${footer(renderProfile)}`
           ),
           structuredContent: {
             query: q,
@@ -694,7 +721,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
@@ -1308,7 +1335,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             : `\n⚠️ Currently out of stock at every shop listed above.\n`;
         }
 
-        md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}`;
+        md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}`;
 
         // B-309 observability: fire ONCE per response, only when ≥1 row was actually
         // downgraded (flag ON + API flagged the row). Flag OFF ⇒ count 0 ⇒ no event.
