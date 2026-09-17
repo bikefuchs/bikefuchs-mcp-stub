@@ -392,6 +392,13 @@ const TOOL_HINTS = {
   openWorldHint: false,
 } as const;
 
+// B-458: per-tool annotations.title on the claude channel only. The openai
+// channel keeps TOOL_HINTS unchanged — its tools/list metadata is frozen by
+// ChatGPT's review, so nothing may be added to what it already returns.
+function toolAnnotations(title: string, profile: RenderProfile) {
+  return profile === 'openai' ? TOOL_HINTS : { ...TOOL_HINTS, title };
+}
+
 function buildServerInstructions(): string {
   return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across German/Austrian online bike shops. It covers over 100,000 products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
 
@@ -469,7 +476,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               })).optional(),
             }),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Search Bike Products', renderProfile),
     },
     async ({ q, country, in_stock, max_results, shop, max_price, category }) => {
       trackMcpEvent("MCP Search", { query: q });
@@ -616,7 +623,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? { disclosure: z.string(), tell_user: z.string() }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Get Best Price by EAN', renderProfile),
     },
     async ({ ean, country, reference_shop }) => {
       trackMcpEvent("MCP Best Price", { ean });
@@ -818,7 +825,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Optimize Shopping Cart', renderProfile),
     },
     async ({ eans, country }) => {
       trackMcpEvent("MCP Optimize Cart", { product_count: eans.length, country });
@@ -1096,7 +1103,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Get Shop Overview', renderProfile),
     },
     async ({ country }) => {
       trackMcpEvent("MCP Shop Info", {});
@@ -1195,7 +1202,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? { disclosure: z.string(), tell_user: z.string() }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Get Shipping Cost', renderProfile),
     },
     async ({ shop, country, cart_value }) => {
       trackMcpEvent("MCP Shipping", { shop });
@@ -1274,7 +1281,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Find Alternative Shops', renderProfile),
     },
     async ({ ean, country }) => {
       trackMcpEvent("MCP Alternatives", { ean });
@@ -1434,7 +1441,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             }
           : {}),
       },
-      annotations: TOOL_HINTS,
+      annotations: toolAnnotations('Resolve Product URL', renderProfile),
     },
     async ({ url, country }) => {
       trackMcpEvent("MCP Resolve", { url });
