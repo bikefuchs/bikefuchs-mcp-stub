@@ -1054,7 +1054,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             };
 
         return {
-          ...mcpText(md + "\n" + linksDirective(renderProfile) + footer(renderProfile)),
+          ...mcpText(md + "\n" + linksDirective(renderProfile) + DISCLOSURE_DIRECTIVE + footer(renderProfile)),
           structuredContent,
         };
       } catch (err) {
@@ -1342,7 +1342,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             : `\n⚠️ Currently out of stock at every shop listed above.\n`;
         }
 
-        md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}`;
+        md += `\n💡 To optimize a cart, call optimize_cart with eans: ['${ean}'] (add other EANs as needed).\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}`;
 
         // B-309 observability: fire ONCE per response, only when ≥1 row was actually
         // downgraded (flag ON + API flagged the row). Flag OFF ⇒ count 0 ⇒ no event.
@@ -1568,6 +1568,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         md += renderProfile === 'openai'
           ? `${title} — **${formatEuro(data.price)}** ${stockIcon}${link ? `\n   ${link}` : ""}\n\n`
           : `${link ? `[${title}](${link})` : title} — **${formatEuro(data.price)}** ${stockIcon}\n\n`;
+        md += `${DISCLOSURE_DIRECTIVE}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
           md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${data.shop}.`;
