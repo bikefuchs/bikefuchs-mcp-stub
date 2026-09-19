@@ -523,7 +523,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               total_results: 0,
               ...(renderProfile === 'openai'
                 ? { disclosure: footer(renderProfile), tell_user: degraded ? DEGRADED_TELL_USER : TELL_USER_SEARCH }
-                : {}),
+                : { disclosure: footer(renderProfile) }),
             },
           };
         }
@@ -576,6 +576,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     { tool: "get_best_price", hint: `Compare prices across all ${shopCount} shops`, eans: results.map(p => p.ean).filter((e): e is string => !!e) },
                     { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products" },
                   ],
+                  disclosure: footer(renderProfile),
                 }),
           },
         };
@@ -659,7 +660,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               cheapest_price: 0,
               ...(renderProfile === 'openai'
                 ? { disclosure: footer(renderProfile), tell_user: PILOT_TELL_USER_BEST_PRICE }
-                : {}),
+                : { disclosure: footer(renderProfile) }),
             },
           };
         }
@@ -753,7 +754,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
               ? { disclosure: footer(renderProfile), tell_user: PILOT_TELL_USER_BEST_PRICE }
-              : {}),
+              : { disclosure: footer(renderProfile) }),
           },
         };
       } catch (err) {
@@ -1055,6 +1056,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
+              disclosure: footer(renderProfile),
             };
 
         return {
@@ -1309,7 +1311,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               alternatives: [],
               ...(renderProfile === 'openai'
                 ? { disclosure: footer(renderProfile), tell_user: TELL_USER_ALTERNATIVES }
-                : {}),
+                : { disclosure: footer(renderProfile) }),
             },
           };
         }
@@ -1375,7 +1377,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                   tell_user: TELL_USER_ALTERNATIVES,
                   next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
                 }
-              : {}),
+              : { disclosure: footer(renderProfile) }),
           },
         };
       } catch (err) {
@@ -1596,7 +1598,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                     ? { next_step: { tool: "get_best_price", hint: "Preis über alle Shops vergleichen und Ersparnis ggü. diesem Shop zeigen", ean: data.ean, reference_shop: data.shop_id } }
                     : {}),
                 }
-              : {}),
+              : { disclosure: footer(renderProfile) }),
           },
         };
       } catch (err) {
