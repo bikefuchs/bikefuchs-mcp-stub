@@ -474,6 +474,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 hint: z.string(),
                 eans: z.array(z.string()).optional(),
               })).optional(),
+              // B-468 stage 1: declare-only. No runtime value sent yet (stage 2).
+              disclosure: z.string().optional(),
             }),
       },
       annotations: toolAnnotations('Search Bike Products', renderProfile),
@@ -619,9 +621,11 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }).optional(),
         // B-162 pilot: openai profile only. Spread adds nothing on the claude
         // profile, so the claude outputSchema stays byte-identical to main.
+        // B-468 stage 1: claude branch now declares optional disclosure (no
+        // runtime value yet — stage 2).
         ...(renderProfile === 'openai'
           ? { disclosure: z.string(), tell_user: z.string() }
-          : {}),
+          : { disclosure: z.string().optional() }),
       },
       annotations: toolAnnotations('Get Best Price by EAN', renderProfile),
     },
@@ -823,7 +827,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 })).optional(),
               }).optional(),
             }
-          : {}),
+          : { disclosure: z.string().optional() }),
       },
       annotations: toolAnnotations('Optimize Shopping Cart', renderProfile),
     },
@@ -1279,7 +1283,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               tell_user: z.string(),
               next_step: z.object({ tool: z.string(), hint: z.string(), eans: z.array(z.string()).optional() }).optional(),
             }
-          : {}),
+          : { disclosure: z.string().optional() }),
       },
       annotations: toolAnnotations('Find Alternative Shops', renderProfile),
     },
@@ -1439,7 +1443,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 reference_shop: z.string().optional(),
               }).optional(),
             }
-          : {}),
+          : { disclosure: z.string().optional() }),
       },
       annotations: toolAnnotations('Resolve Product URL', renderProfile),
     },
