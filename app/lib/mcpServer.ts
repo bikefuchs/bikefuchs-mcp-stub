@@ -7,6 +7,12 @@ import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimi
 
 // Use www subdomain directly — bikefuchs.com (apex) 307-redirects to www
 const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
+// B-417: host for the /go/ affiliate links we hand to users. The www subdomain
+// 307-redirects to the apex, so every link costs an extra hop unless built on
+// the apex directly. Deliberately separate from API_BASE — that constant means
+// "where the main app's API lives", a different concept that happens to share
+// a host today.
+const GO_LINK_HOST = "https://bikefuchs.com";
 const FETCH_TIMEOUT_MS = 8000;
 const FOOTER =
   "\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*";
@@ -337,7 +343,7 @@ function buildGoUrl(shopId: string | null, ean: string | null, toolName: string)
   if (!shopId) return "";
   const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
   const eanSegment = ean && /^\d{8,14}$/.test(ean) ? ean : 'home';
-  return `https://www.bikefuchs.com/go/${slug}/${eanSegment}?src=mcp&loc=${toolName}`;
+  return `${GO_LINK_HOST}/go/${slug}/${eanSegment}?src=mcp&loc=${toolName}`;
 }
 
 async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
