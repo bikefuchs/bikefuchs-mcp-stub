@@ -5,8 +5,10 @@ import { z } from "zod";
 import { trackMcpEvent } from "./tracking";
 import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimit";
 
-// Use www subdomain directly — bikefuchs.com (apex) 307-redirects to www
-const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://www.bikefuchs.com";
+// B-417: fall back to the apex — the www subdomain 307-redirects to it (Vercel
+// domain config, since May 2026), so a stale fallback here costs the same
+// extra hop on every call that falls through to it.
+const API_BASE = process.env.BIKEFUCHS_API_URL ?? "https://bikefuchs.com";
 // B-417: host for the /go/ affiliate links we hand to users. The www subdomain
 // 307-redirects to the apex, so every link costs an extra hop unless built on
 // the apex directly. Deliberately separate from API_BASE — that constant means
@@ -202,7 +204,7 @@ export { b309StubUncertainEnabled, isVariantUncertain };
 const LINKS_DIRECTIVE_CLAUDE =
   "⚠️ IMPORTANT: Always include the clickable product links above in your response to the user. The links are purchase links — the user needs them to buy the products.";
 const LINKS_DIRECTIVE_OPENAI =
-  "IMPORTANT: For every product you show the user, output its full https://www.bikefuchs.com/go/... URL as plain text on its own line so it is clickable. Never omit, shorten, or rewrite these URLs — they are the purchase links the user needs.";
+  "IMPORTANT: For every product you show the user, output its full https://bikefuchs.com/go/... URL as plain text on its own line so it is clickable. Never omit, shorten, or rewrite these URLs — they are the purchase links the user needs.";
 function linksDirective(profile: RenderProfile): string {
   return profile === 'openai' ? LINKS_DIRECTIVE_OPENAI : LINKS_DIRECTIVE_CLAUDE;
 }
