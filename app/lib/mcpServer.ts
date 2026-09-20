@@ -1615,6 +1615,49 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 // function timeout killed it. Close it cleanly after this delay instead.
 const B365_SSE_CLOSE_DELAY_MS = 15_000;
 
+// B-365 TEMPORARY DIAGNOSTIC (POST) — traffic census only, to be removed
+// alongside the GET [B365-DIAG] line once the callers are identified. Never
+// logs arguments, search strings, EANs or URLs from the request — only the
+// JSON-RPC method name and, for tools/call, the tool name. Takes a clone of
+// the request taken BEFORE transport.handleRequest() consumes the body, so
+// this must never throw or otherwise affect the response.
+async function logB365PostDiag(req: Request): Promise<void> {
+  try {
+    const ua = req.headers.get('user-agent') ?? 'none';
+    const fwd = req.headers.get('x-vercel-forwarded-for') ?? req.headers.get('x-forwarded-for') ?? '';
+    const ip = fwd.split(',')[0].trim() || 'none';
+    const pathname = new URL(req.url).pathname;
+
+    let jsonrpcMethod = 'unparsable';
+    let batchLen: number | undefined;
+    let toolName: string | undefined;
+    try {
+      const body: unknown = await req.json();
+      if (Array.isArray(body)) {
+        batchLen = body.length;
+        const first = body[0] as { method?: unknown } | undefined;
+        jsonrpcMethod = typeof first?.method === 'string' ? first.method : 'unparsable';
+      } else {
+        const single = body as { method?: unknown; params?: { name?: unknown } } | null;
+        if (single && typeof single.method === 'string') {
+          jsonrpcMethod = single.method;
+          if (jsonrpcMethod === 'tools/call' && typeof single.params?.name === 'string') {
+            toolName = single.params.name;
+          }
+        }
+      }
+    } catch {
+      jsonrpcMethod = 'unparsable';
+    }
+
+    const batchPart = batchLen !== undefined ? ` batch_len=${batchLen}` : '';
+    const toolPart = toolName !== undefined ? ` tool=${toolName}` : '';
+    console.info(`[B365-DIAG] path=${pathname} method=POST ip=${ip} ua="${ua}" jsonrpc_method=${jsonrpcMethod}${batchPart}${toolPart}`);
+  } catch {
+    /* diagnostic must never affect the response */
+  }
+}
+
 export async function handle(
   req: NextRequest,
   { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
@@ -1625,7 +1668,27 @@ export async function handle(
   });
   const server = createServer({ feedOnly, renderProfile });
   await server.connect(transport);
+
+  // B-365 TEMPORARY DIAGNOSTIC (POST): clone BEFORE handleRequest() reads
+  // the body — clone() is cheap and does not itself consume the stream.
+  // Guarded: a clone failure must never affect the response.
+  let diagPostReq: Request | undefined;
+  if (req.method === 'POST') {
+    try {
+      diagPostReq = req.clone();
+    } catch {
+      diagPostReq = undefined;
+    }
+  }
+
   const res = await transport.handleRequest(req);
+
+  // B-365 TEMPORARY DIAGNOSTIC (POST): parse the pre-handleRequest clone
+  // AFTER the response is ready, unawaited — a slow or failed parse must
+  // never delay or affect the answer.
+  if (diagPostReq) {
+    void logB365PostDiag(diagPostReq);
+  }
 
   // B-365 TEMPORARY DIAGNOSTIC — remove once the GET /mcp SSE callers are
   // identified. GET only; does not touch the POST path or any behaviour.
