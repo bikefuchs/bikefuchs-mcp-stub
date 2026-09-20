@@ -1622,6 +1622,19 @@ export async function handle(
   await server.connect(transport);
   const res = await transport.handleRequest(req);
 
+  // B-365 TEMPORARY DIAGNOSTIC — remove once the GET /mcp SSE callers are
+  // identified. GET only; does not touch the POST path or any behaviour.
+  // Header reads are inlined (not imported from rateLimit.ts) per the same
+  // derivation as clientIp() there: x-vercel-forwarded-for, falling back to
+  // x-forwarded-for.
+  if (req.method === 'GET') {
+    const ua = req.headers.get('user-agent') ?? 'none';
+    const fwd = req.headers.get('x-vercel-forwarded-for') ?? req.headers.get('x-forwarded-for') ?? '';
+    const ip = fwd.split(',')[0].trim() || 'none';
+    const acceptsSse = req.headers.get('accept')?.includes('text/event-stream') ?? false;
+    console.info(`[B365-DIAG] path=${req.nextUrl.pathname} accept_sse=${acceptsSse} ip=${ip} ua="${ua}"`);
+  }
+
   // Anti-harvesting coverage recording (Chokepoint 2): record the EANs this
   // response served into the source's 24h HLL. The middleware set the source
   // header on allowed requests; allowlisted-AI / fail-open requests have none.
