@@ -1610,6 +1610,11 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
   return server;
 }
 
+// B-365: the standalone GET /mcp SSE stream is never written to (see the
+// Phase 0 investigation) and was previously left open until Vercel's 300s
+// function timeout killed it. Close it cleanly after this delay instead.
+const B365_SSE_CLOSE_DELAY_MS = 15_000;
+
 export async function handle(
   req: NextRequest,
   { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
@@ -1633,6 +1638,12 @@ export async function handle(
     const ip = fwd.split(',')[0].trim() || 'none';
     const acceptsSse = req.headers.get('accept')?.includes('text/event-stream') ?? false;
     console.info(`[B365-DIAG] path=${req.nextUrl.pathname} accept_sse=${acceptsSse} ip=${ip} ua="${ua}"`);
+
+    // B-365: bound the SSE stream's lifetime instead of letting Vercel kill
+    // it at the 300s function timeout. No-op if the stream is already gone
+    // (e.g. the client disconnected first) — see closeStandaloneSSEStream()
+    // in the SDK, which checks the mapping before doing anything.
+    setTimeout(() => transport.closeStandaloneSSEStream(), B365_SSE_CLOSE_DELAY_MS);
   }
 
   // Anti-harvesting coverage recording (Chokepoint 2): record the EANs this
