@@ -345,15 +345,29 @@ function feedOnlyParam(feedOnly: boolean): string {
 // B-377: previously fell back to the literal 'home' path segment whenever the EAN
 // was missing/invalid — a broken purchase link (e.g. .../go/bike-discount/home?...).
 // Precedence now: valid EAN -> canonical /go/<slug>/<ean>; no valid EAN but the main
-// app already built a link for this row -> that link, used verbatim (never build a
-// /go/url ourselves here — that producer is the main app, see B-390); neither -> ""
+// app already built a link for this row -> that link, used verbatim once trust-checked
+// (never build a /go/url ourselves here — that producer is the main app, see B-390); neither -> ""
 // (the only signal for "no link" — callers must omit the purchase line entirely).
+// B-377 addendum: a readyLink is only trustworthy if it is ALREADY a bikefuchs.com/go/
+// link the main app built — never a raw shop URL (bypasses /go/: no Umami click event,
+// no host validation, breaks the standing "never render a raw affiliate link" rule) and
+// never the www host (B-417 moved every buy link to the apex on 2026-09-20; a www link
+// showing up means something upstream regressed, so the honest move is to make the link
+// DISAPPEAR and let that be noticed, not silently eat a 307). Apex-exact match only.
+function isTrustedGoLink(url: string): boolean {
+  try {
+    return new URL(url).host === 'bikefuchs.com';
+  } catch {
+    return false;
+  }
+}
+
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string, readyLink?: string | null): string {
   if (shopId && ean && /^\d{8,14}$/.test(ean)) {
     const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
     return `${GO_LINK_HOST}/go/${slug}/${ean}?src=mcp&loc=${toolName}`;
   }
-  return readyLink ? readyLink : "";
+  return readyLink && isTrustedGoLink(readyLink) ? readyLink : "";
 }
 
 // B-370: age disclosure for a scraped-shop row. `price_as_of` is OPTIONAL — the main
