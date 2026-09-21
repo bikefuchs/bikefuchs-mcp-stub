@@ -580,7 +580,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         const lines = results.map((p, i) => {
           const stockIcon = p.in_stock ? "✅" : "❌";
-          const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.product_url ?? p.purchase_url);
+          const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.purchase_url ?? p.product_url);
           return productEntry(
             renderProfile,
             `${i + 1}. `,
@@ -604,7 +604,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               currency: "EUR",
               shop: p.shop,
               availability: p.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.product_url ?? p.purchase_url),
+              affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.purchase_url ?? p.product_url),
             })),
             total_results: total,
             ...(renderProfile === 'openai'
@@ -1623,7 +1623,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
         // Only ever emit a /go/ affiliate link — never the raw shop URL. When no
         // shop_id (link empty), render the title without a hyperlink.
-        const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.product_url ?? data.purchase_url);
+        const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.purchase_url ?? data.product_url);
         const title = `${data.product_name ?? "Product"} — ${data.shop}`;
         const ageNote = priceAgeNote(data.price_as_of);
         let md = `## Resolved Product\n\n`;
@@ -1645,7 +1645,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ean: data.ean ?? undefined,
             price: data.price,
             shop: data.shop,
-            affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.product_url ?? data.purchase_url) || undefined,
+            affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.purchase_url ?? data.product_url) || undefined,
             ...(renderProfile === 'openai'
               ? {
                   disclosure: footer(renderProfile),
