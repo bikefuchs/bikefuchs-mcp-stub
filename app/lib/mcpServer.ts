@@ -253,8 +253,9 @@ function productEntry(
       ? `${head}${label}${tail}\n${urlIndent}${url}`
       : `${head}${label}${tail}`;
   }
-  // claude (default): exactly the original `${head}[${label}](${url})${tail}`
-  return `${head}[${label}](${url})${tail}`;
+  // claude (default): `[label](url)` when a url exists; plain label otherwise —
+  // never render a dead `[label]()` link (B-377).
+  return url ? `${head}[${label}](${url})${tail}` : `${head}${label}${tail}`;
 }
 
 const INTERNAL_ID_TO_SLUG: Record<string, string> = {
@@ -341,11 +342,36 @@ function feedOnlyParam(feedOnly: boolean): string {
   return feedOnly ? '&feedOnly=true' : '';
 }
 
-function buildGoUrl(shopId: string | null, ean: string | null, toolName: string): string {
-  if (!shopId) return "";
-  const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
-  const eanSegment = ean && /^\d{8,14}$/.test(ean) ? ean : 'home';
-  return `${GO_LINK_HOST}/go/${slug}/${eanSegment}?src=mcp&loc=${toolName}`;
+// B-377: previously fell back to the literal 'home' path segment whenever the EAN
+// was missing/invalid — a broken purchase link (e.g. .../go/bike-discount/home?...).
+// Precedence now: valid EAN -> canonical /go/<slug>/<ean>; no valid EAN but the main
+// app already built a link for this row -> that link, used verbatim (never build a
+// /go/url ourselves here — that producer is the main app, see B-390); neither -> ""
+// (the only signal for "no link" — callers must omit the purchase line entirely).
+function buildGoUrl(shopId: string | null, ean: string | null, toolName: string, readyLink?: string | null): string {
+  if (shopId && ean && /^\d{8,14}$/.test(ean)) {
+    const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
+    return `${GO_LINK_HOST}/go/${slug}/${ean}?src=mcp&loc=${toolName}`;
+  }
+  return readyLink ? readyLink : "";
+}
+
+// B-370: age disclosure for a scraped-shop row. `price_as_of` is OPTIONAL — the main
+// app may not send it yet (ships same day per Mario) or may never send it for a feed
+// row; absent/unparsable = "" = no-op, byte-identical to pre-B-370. CONTENT block only,
+// never touches an outputSchema (that's B-478 — /mcp's additionalProperties:false would
+// reject an undeclared structuredContent field, see B-468). Only surfaced once the price
+// is genuinely stale (>24h) — a fresh scrape says nothing extra. German date, no year
+// (matches the existing bikefuchs.com date convention).
+function priceAgeNote(priceAsOf?: string | null): string {
+  if (!priceAsOf) return "";
+  const asOf = new Date(priceAsOf);
+  if (Number.isNaN(asOf.getTime())) return "";
+  const ageMs = Date.now() - asOf.getTime();
+  if (ageMs <= 24 * 60 * 60 * 1000) return "";
+  const day = String(asOf.getDate()).padStart(2, '0');
+  const month = String(asOf.getMonth() + 1).padStart(2, '0');
+  return ` (Preis vom ${day}.${month}.)`;
 }
 
 async function apiFetch(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
@@ -540,13 +566,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         const lines = results.map((p, i) => {
           const stockIcon = p.in_stock ? "✅" : "❌";
-          const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product');
+          const link = buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.product_url ?? p.purchase_url);
           return productEntry(
             renderProfile,
             `${i + 1}. `,
             `${p.product_name} — ${p.shop}`,
             link,
-            ` — **${formatEuro(p.price)}** ${stockIcon}${variantSegment(p)}${p.ean ? ` · EAN ${p.ean}` : ""}`,
+            ` — **${formatEuro(p.price)}** ${stockIcon}${variantSegment(p)}${p.ean ? ` · EAN ${p.ean}` : ""}${priceAgeNote(p.price_as_of)}`,
           );
         });
 
@@ -564,7 +590,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               currency: "EUR",
               shop: p.shop,
               availability: p.in_stock ? "in_stock" : "out_of_stock",
-              affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product'),
+              affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.product_url ?? p.purchase_url),
             })),
             total_results: total,
             ...(renderProfile === 'openai'
@@ -686,13 +712,17 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
           const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
+          // B-377: `ean` here is the tool's own INPUT param, already constrained by the
+          // inputSchema regex (/^\d{8,14}$/, above) — the SDK rejects an invalid call
+          // before this handler runs, so this can never hit buildGoUrl's fallback branch.
+          // No readyLink needed/available here (verified, not assumed — see B-377 report).
           const link = buildGoUrl(r.shop_id, ean, 'get_best_price');
           return productEntry(
             renderProfile,
             `${i + 1}. `,
             `${productName} — ${r.shop}`,
             link,
-            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}`,
+            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
           );
         });
 
@@ -908,7 +938,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         for (const order of result.orders) {
           md += `\n**${order.shopName}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
           for (const item of order.products) {
-            const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart');
+            const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart', item.url);
             md += productEntry(
               renderProfile,
               `  - `,
@@ -943,7 +973,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
           const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
           for (const item of sso.items ?? []) {
-            const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item');
+            const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item', item.url);
             md += productEntry(
               renderProfile,
               `  - `,
@@ -958,7 +988,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
         for (const order of result.orders) {
           for (const item of order.products) {
-            const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart');
+            const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart', item.url);
             md += productEntry(
               renderProfile,
               `- `,
@@ -982,7 +1012,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             name: item.productName,
             ean: item.ean,
             price: item.price,
-            affiliate_url: buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart'),
+            affiliate_url: buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart', item.url),
           })),
         }));
 
@@ -1009,7 +1039,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                   name: it.productName,
                   ean: it.ean,
                   price: round2(it.price),
-                  affiliate_url: buildGoUrl(ssoSlug, it.ean ?? null, 'single_shop_item'),
+                  affiliate_url: buildGoUrl(ssoSlug, it.ean ?? null, 'single_shop_item', it.url),
                 })),
               };
             })()
@@ -1337,13 +1367,16 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
           const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
+          // B-377: `ean` here is the tool's own INPUT param (inputSchema regex-validated,
+          // see get_best_price above for the identical reasoning) — cannot be empty/invalid
+          // when this handler runs. No readyLink needed/available here.
           const link = buildGoUrl(r.shop_id, ean, 'find_alternatives');
           md += productEntry(
             renderProfile,
             `${i + 1}. `,
             `${productName} — ${r.shop}`,
             link,
-            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}`,
+            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
           ) + `\n`;
         }
 
@@ -1576,12 +1609,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const stockIcon = data.in_stock ? "✅ In stock" : "❌ Out of stock";
         // Only ever emit a /go/ affiliate link — never the raw shop URL. When no
         // shop_id (link empty), render the title without a hyperlink.
-        const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product');
+        const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.product_url ?? data.purchase_url);
         const title = `${data.product_name ?? "Product"} — ${data.shop}`;
+        const ageNote = priceAgeNote(data.price_as_of);
         let md = `## Resolved Product\n\n`;
         md += renderProfile === 'openai'
-          ? `${title} — **${formatEuro(data.price)}** ${stockIcon}${link ? `\n   ${link}` : ""}\n\n`
-          : `${link ? `[${title}](${link})` : title} — **${formatEuro(data.price)}** ${stockIcon}\n\n`;
+          ? `${title} — **${formatEuro(data.price)}** ${stockIcon}${ageNote}${link ? `\n   ${link}` : ""}\n\n`
+          : `${link ? `[${title}](${link})` : title} — **${formatEuro(data.price)}** ${stockIcon}${ageNote}\n\n`;
         md += `${DISCLOSURE_DIRECTIVE}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
@@ -1597,7 +1631,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ean: data.ean ?? undefined,
             price: data.price,
             shop: data.shop,
-            affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product') || undefined,
+            affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.product_url ?? data.purchase_url) || undefined,
             ...(renderProfile === 'openai'
               ? {
                   disclosure: footer(renderProfile),
@@ -1753,6 +1787,10 @@ interface ProductSearchResult {
   // verbatim by variantSegment; never re-gated here.
   variant_size?: string | null;
   variant_colour?: string | null;
+  // B-370: ISO timestamp of a scraped-shop row's price. OPTIONAL — absent on feed rows
+  // and on any API build that predates this field. Rendered as an age disclosure only
+  // when >24h old (priceAgeNote); never re-gated or reformatted beyond that.
+  price_as_of?: string | null;
 }
 
 interface EanResult {
@@ -1778,6 +1816,8 @@ interface EanResult {
   // are the attributes of a row whose variant IS known. Rendered verbatim.
   variant_size?: string | null;
   variant_colour?: string | null;
+  // B-370: see ProductSearchResult.price_as_of above — identical, OPTIONAL, CONTENT-only.
+  price_as_of?: string | null;
 }
 
 interface ShippingTier {
@@ -1866,6 +1906,8 @@ interface ResolveResult {
   shop_id: string;
   purchase_url: string | null;
   product_url: string | null;
+  // B-370: see ProductSearchResult.price_as_of. OPTIONAL, CONTENT-only.
+  price_as_of?: string | null;
   error?: string;
   // B-044: present when the family was found but the exact variant is undeterminable.
   // B-259: 'pick_variant' when the API relays labeled sibling options (see `options`).
