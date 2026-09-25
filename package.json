@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:b477": "node --import tsx --test test/b477-parity.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
@@ -18,6 +19,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
