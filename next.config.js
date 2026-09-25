@@ -18,6 +18,17 @@ const config = {
           { key: 'Access-Control-Allow-Origin', value: '*' },
         ],
       },
+      {
+        // B-492: the /mcp server card is prerendered and has no OPTIONS handler (that
+        // would make it dynamic), so its CORS headers live here and cover GET + OPTIONS.
+        // Values unchanged from the former hand-written card.
+        source: '/.well-known/mcp/server-card.json',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
+        ],
+      },
     ];
   },
   webpack: (webpackConfig) => {

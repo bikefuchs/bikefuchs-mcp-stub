@@ -1681,6 +1681,32 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
   return server;
 }
 
+// B-492: one JSON-RPC request answered in-process by a freshly built server, through
+// the public protocol only (same approach as the B-477 template server, which it
+// does not touch). Used at BUILD time to generate the static server card from the
+// server's own tools/list and initialize, so the card can never drift from them.
+// Throws on anything but a JSON-RPC result — the card build must fail loudly.
+export async function inProcessMcpResult(
+  { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
+  message: { method: string; params?: Record<string, unknown> },
+): Promise<Record<string, unknown>> {
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  await createServer({ feedOnly, renderProfile }).connect(transport);
+  const res = await transport.handleRequest(new Request('http://b492.in-process/mcp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...message }),
+  }));
+  const json = (await res.json()) as { result?: Record<string, unknown>; error?: unknown };
+  if (res.status !== 200 || !json.result) {
+    throw new Error(`B-492: in-process ${message.method} failed: HTTP ${res.status} ${JSON.stringify(json.error ?? json)}`);
+  }
+  return json.result;
+}
+
 // B-365: the standalone GET /mcp SSE stream is never written to (see the
 // Phase 0 investigation) and was previously left open until Vercel's 300s
 // function timeout killed it. Close it cleanly after this delay instead.
