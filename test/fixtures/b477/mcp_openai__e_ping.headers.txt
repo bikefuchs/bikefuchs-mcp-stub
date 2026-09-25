@@ -1,0 +1,11 @@
+HTTP/2 200 
+cache-control: public, max-age=0, must-revalidate
+content-type: application/json
+date: Fri, 25 Sep 2026 13:01:58 GMT
+server: Vercel
+strict-transport-security: max-age=63072000
+vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch
+x-matched-path: /mcp/openai
+x-vercel-cache: MISS
+x-vercel-id: fra1::iad1::zwh6l-1790341318115-b477b4398e69
+
