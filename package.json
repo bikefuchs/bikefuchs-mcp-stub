@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:b477": "node --import tsx --test test/b477-parity.test.ts"
+    "test:b477": "node --import tsx --test test/b477-parity.test.ts",
+    "test:b492": "node --import tsx --test test/b492-server-card.test.ts test/b477-parity.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
