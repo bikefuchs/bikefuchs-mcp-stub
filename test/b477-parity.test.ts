@@ -12,6 +12,8 @@
  *   [d] flag OFF: returns null for every input, before touching the request at all
  *   [e] flag ON:  the B-365 POST census line still fires on the early path
  *   [f] tools/list fingerprints unchanged (hard rule for B-477)
+ *   [g] the "[B477] early" marker: exactly one per answered request (flag ON), none on
+ *       fall-through or with the flag OFF — and on console.info, which Vercel keeps
  *
  * Run: npm run test:b477
  */
@@ -110,17 +112,23 @@ async function withFlag<T>(value: string | undefined, fn: () => Promise<T>): Pro
   }
 }
 
-// Silences the [B365-DIAG] census lines both paths print, and records them for [e].
-async function captureInfo<T>(fn: () => Promise<T>): Promise<{ value: T; lines: string[] }> {
-  const original = console.info;
+// Silences the [B365-DIAG] census and [B477] marker lines both paths print, and records
+// them for [e] and [g]. console.log is recorded separately: Vercel production drops it,
+// so a marker there would be invisible.
+async function captureInfo<T>(fn: () => Promise<T>): Promise<{ value: T; lines: string[]; logLines: string[] }> {
+  const originalInfo = console.info;
+  const originalLog = console.log;
   const lines: string[] = [];
+  const logLines: string[] = [];
   console.info = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+  console.log = (...args: unknown[]) => void logLines.push(args.map(String).join(' '));
   try {
     const value = await fn();
     await new Promise((r) => setTimeout(r, 20)); // the census is fire-and-forget
-    return { value, lines };
+    return { value, lines, logLines };
   } finally {
-    console.info = original;
+    console.info = originalInfo;
+    console.log = originalLog;
   }
 }
 
@@ -246,4 +254,48 @@ for (const ch of CHANNELS) {
       assert.equal(createHash('sha256').update(value.body).digest('hex'), want.sha256, 'tools/list sha256');
     });
   }
+}
+
+// [g] The B-477 marker is the only outside-visible proof that the early path answered.
+const ANSWERED_METHOD: Record<string, string> = {
+  a_init_20250618: 'initialize',
+  b_init_20250326: 'initialize',
+  c_init_20241105: 'initialize',
+  d_initialized: 'notifications/initialized',
+  e_ping: 'ping',
+  init_unknown_version: 'initialize',
+  init_string_id: 'initialize',
+  ping_supported_protocol_header: 'ping',
+};
+const markers = (lines: string[]) => lines.filter((l) => l.includes('[B477]'));
+
+for (const ch of CHANNELS) {
+  const path = new URL(ch.url).pathname;
+
+  test(`[g] ${ch.name}: flag ON answered request logs exactly one [B477] marker`, async () => {
+    for (const [name, c] of Object.entries({ ...GOLDEN_CASES, ...EXTRA_CASES })) {
+      const { value, lines, logLines } = await captureInfo(() => earlyExit(ch, c));
+      assert.ok(value, `${name}: early exit returned null`);
+      assert.deepEqual(markers(lines), [`[B477] early method=${ANSWERED_METHOD[name]} path=${path}`], name);
+      assert.deepEqual(markers(logLines), [], `${name}: marker must use console.info, not console.log`);
+    }
+  });
+
+  test(`[g] ${ch.name}: flag ON fall-through logs no [B477] marker`, async () => {
+    for (const [name, c] of Object.entries(FALL_THROUGH_CASES)) {
+      const { value, lines, logLines } = await captureInfo(() => earlyExit(ch, c));
+      assert.equal(value, null, name);
+      assert.deepEqual(markers([...lines, ...logLines]), [], name);
+    }
+  });
+
+  test(`[g] ${ch.name}: flag OFF logs no [B477] marker, early exit or full path`, async () => {
+    for (const [name, c] of Object.entries({ ...GOLDEN_CASES, ...EXTRA_CASES, ...FALL_THROUGH_CASES })) {
+      const { lines, logLines } = await captureInfo(async () => {
+        await withFlag(undefined, () => b477EarlyExit(makeRequest(ch.url, c), ch.opts));
+        await fullPath(ch, c);
+      });
+      assert.deepEqual(markers([...lines, ...logLines]), [], name);
+    }
+  });
 }

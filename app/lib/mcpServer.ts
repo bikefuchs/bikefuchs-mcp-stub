@@ -1817,6 +1817,7 @@ export async function b477EarlyExit(
   if (params !== null && typeof params === 'object' && '_meta' in params) return null;
 
   let res: Response | null = null;
+  let method: 'initialize' | 'ping' | 'notifications/initialized' | undefined;
   const init = InitializeRequestSchema.safeParse(body);
   if (init.success && isJSONRPCRequest(body)) {
     // Mirrors Server._oninitialize: the requested version if supported, else the latest.
@@ -1826,6 +1827,7 @@ export async function b477EarlyExit(
     const capabilities = await b477Capabilities(feedOnly, renderProfile);
     if (!capabilities) return null;
     const instructions = buildServerInstructions();
+    method = 'initialize';
     res = b477Json({
       result: {
         protocolVersion,
@@ -1842,8 +1844,10 @@ export async function b477EarlyExit(
     if (headerVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(headerVersion)) return null;
 
     if (isJSONRPCRequest(body) && PingRequestSchema.safeParse(body).success) {
+      method = 'ping';
       res = b477Json({ result: {}, jsonrpc: '2.0', id: body.id });
     } else if (isJSONRPCNotification(body) && InitializedNotificationSchema.safeParse(body).success) {
+      method = 'notifications/initialized';
       res = new Response(null, { status: 202 });
     }
   }
@@ -1851,6 +1855,10 @@ export async function b477EarlyExit(
 
   // B-365 census stays complete on the early path (same helper, own clone).
   void logB365PostDiag(req.clone());
+  // B-477 marker: the only observable sign that the early path answered (bytes and the
+  // census line are identical by design). console.info, not console.log — Vercel
+  // production filters console.log. Method and path only; never IP or user agent.
+  console.info(`[B477] early method=${method} path=${new URL(req.url).pathname}`);
   return res;
 }
 
