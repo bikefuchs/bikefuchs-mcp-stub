@@ -1,5 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import {
+  InitializeRequestSchema,
+  InitializedNotificationSchema,
+  JSONRPCMessageSchema,
+  LATEST_PROTOCOL_VERSION,
+  PingRequestSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  isJSONRPCNotification,
+  isJSONRPCRequest,
+  type ServerCapabilities,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { trackMcpEvent } from "./tracking";
@@ -1718,10 +1729,138 @@ async function logB365PostDiag(req: Request): Promise<void> {
   }
 }
 
+// B-477: early exit for the MCP routine messages. About half of all POSTs are a
+// single initialize, ping or notifications/initialized; each one used to build the
+// full server (7 tools) just to answer a constant. This answers them before that,
+// byte-identical to the full path (test/b477-parity.test.ts). Flag-gated: OFF unless
+// B477_EARLY_EXIT_ENABLED is exactly "true", read per request, never at module scope.
+//
+// Single source — nothing below is a copied string:
+// - serverInfo / instructions: SERVER_INFO + buildServerInstructions(), which
+//   createServer() also uses;
+// - capabilities: read from a real server built once per instance and profile;
+// - validation and protocolVersion negotiation: the SDK's own schemas and constants,
+//   the same ones Server._oninitialize and the transport use.
+// What IS mirrored from SDK internals: the {result, jsonrpc, id} key order, the
+// empty ping result and the bare 202 for a notification. An SDK upgrade can change
+// those — the parity test compares against the full path and the production
+// goldens, so run it on every SDK bump.
+//
+// Anything else — batches, _meta, an unsupported protocol header, bad Accept or
+// Content-Type, unparsable bodies, every other method — returns null and takes the
+// unchanged full path, which produces its own answer or error.
+const b477CapabilitiesByProfile = new Map<string, Promise<ServerCapabilities | null>>();
+
+// Server.getCapabilities() is private in the SDK typings, so the template server is
+// asked through the public protocol instead: one in-process initialize, once per
+// instance and profile. null (should never happen) sends every request the full path.
+function b477Capabilities(feedOnly: boolean, renderProfile: RenderProfile): Promise<ServerCapabilities | null> {
+  const key = `${feedOnly}|${renderProfile}`;
+  let caps = b477CapabilitiesByProfile.get(key);
+  if (!caps) {
+    caps = (async () => {
+      try {
+        const transport = new WebStandardStreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableJsonResponse: true,
+        });
+        await createServer({ feedOnly, renderProfile }).connect(transport);
+        const res = await transport.handleRequest(new Request('http://b477.template/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 0,
+            method: 'initialize',
+            params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'b477-template', version: '0' } },
+          }),
+        }));
+        const json = (await res.json()) as { result?: { capabilities?: ServerCapabilities } };
+        return json.result?.capabilities ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    b477CapabilitiesByProfile.set(key, caps);
+  }
+  return caps;
+}
+
+function b477Json(message: unknown): Response {
+  return new Response(JSON.stringify(message), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function b477EarlyExit(
+  req: Request,
+  { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
+): Promise<Response | null> {
+  if (process.env.B477_EARLY_EXIT_ENABLED !== 'true') return null;
+  if (req.method !== 'POST') return null;
+
+  // Same header gates as the transport (406 / 415 there) — mismatches go the full path.
+  const accept = req.headers.get('accept');
+  if (!accept?.includes('application/json') || !accept.includes('text/event-stream')) return null;
+  const contentType = req.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) return null;
+
+  let body: unknown;
+  try {
+    body = await req.clone().json();
+  } catch {
+    return null;
+  }
+  if (Array.isArray(body) || !JSONRPCMessageSchema.safeParse(body).success) return null;
+  const params = (body as { params?: unknown }).params;
+  if (params !== null && typeof params === 'object' && '_meta' in params) return null;
+
+  let res: Response | null = null;
+  const init = InitializeRequestSchema.safeParse(body);
+  if (init.success && isJSONRPCRequest(body)) {
+    // Mirrors Server._oninitialize: the requested version if supported, else the latest.
+    // Like the transport, initialize ignores the mcp-protocol-version header.
+    const requested = init.data.params.protocolVersion;
+    const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST_PROTOCOL_VERSION;
+    const capabilities = await b477Capabilities(feedOnly, renderProfile);
+    if (!capabilities) return null;
+    const instructions = buildServerInstructions();
+    res = b477Json({
+      result: {
+        protocolVersion,
+        capabilities,
+        serverInfo: SERVER_INFO,
+        ...(instructions && { instructions }),
+      },
+      jsonrpc: '2.0',
+      id: body.id,
+    });
+  } else {
+    // Every non-initialize message: the transport answers 400 for an unsupported header.
+    const headerVersion = req.headers.get('mcp-protocol-version');
+    if (headerVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(headerVersion)) return null;
+
+    if (isJSONRPCRequest(body) && PingRequestSchema.safeParse(body).success) {
+      res = b477Json({ result: {}, jsonrpc: '2.0', id: body.id });
+    } else if (isJSONRPCNotification(body) && InitializedNotificationSchema.safeParse(body).success) {
+      res = new Response(null, { status: 202 });
+    }
+  }
+  if (!res) return null;
+
+  // B-365 census stays complete on the early path (same helper, own clone).
+  void logB365PostDiag(req.clone());
+  return res;
+}
+
 export async function handle(
   req: NextRequest,
   { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
 ): Promise<Response> {
+  const early = await b477EarlyExit(req, { feedOnly, renderProfile });
+  if (early) return early;
+
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
