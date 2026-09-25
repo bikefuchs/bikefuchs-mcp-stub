@@ -447,7 +447,11 @@ function toolAnnotations(title: string, profile: RenderProfile) {
   return profile === 'openai' ? TOOL_HINTS : { ...TOOL_HINTS, title };
 }
 
-function buildServerInstructions(): string {
+// B-477: single source for the initialize result. createServer() and the
+// early-exit answer (b477EarlyExit) both read these, so the two can never drift.
+export const SERVER_INFO = { name: "bikefuchs", version: "2.5.0" };
+
+export function buildServerInstructions(): string {
   return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across German/Austrian online bike shops. It covers over 100,000 products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
 
 WORKFLOW GUIDE:
@@ -472,7 +476,7 @@ Workflow for cart optimization: When the user wants to optimize a cart, first ca
 function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderProfile: RenderProfile }) {
   // Feed-only mode (/mcp/openai) exposes 9 shops; default mode exposes all 11.
   const shopCount = feedOnly ? FEED_SHOPS.length : SHOP_COUNT;
-  const server = new McpServer({ name: "bikefuchs", version: "2.5.0" }, { instructions: buildServerInstructions() });
+  const server = new McpServer(SERVER_INFO, { instructions: buildServerInstructions() });
 
   // ── Tool 1: search_product ─────────────────────────────────────────────────
   server.registerTool(
