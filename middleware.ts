@@ -20,6 +20,10 @@ import { checkLimits, clientIp, RL_SOURCE_HEADER } from './app/lib/rateLimit';
 import { isAiEgress } from './app/lib/aiEgressCidrs';
 import { isProbeEgress } from './app/lib/probeCidrs';
 
+// B-497 DIAG — temporary. Remove after the cold-start measurement.
+const B497_MW_BOOT_AT = Date.now();
+let b497MwServed = 0;
+
 export const config = {
   matcher: ['/mcp', '/mcp/openai'],
 };
@@ -28,6 +32,8 @@ const THROTTLE_TEXT =
   'Zu viele Anfragen — bitte einen Moment warten und erneut versuchen.';
 
 export async function middleware(req: NextRequest) {
+  b497MwServed += 1;
+  console.info(`[B497] mw cold=${b497MwServed === 1 ? 1 : 0} n=${b497MwServed} age_ms=${Date.now() - B497_MW_BOOT_AT} method=${req.method} path=${req.nextUrl.pathname}`);
   // B-364: method gate (flag-gated, OFF unless the env var is exactly "true").
   // Requests that are neither POST (JSON-RPC tool calls) nor DELETE (MCP session
   // teardown) carry no harvestable payload, so skip the rate-limit path entirely
