@@ -15,6 +15,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { trackMcpEvent } from "./tracking";
 import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimit";
+import { handlerLimitGate } from "./handlerLimit";
 
 // B-497 DIAG — temporary. Remove after the cold-start measurement.
 const B497_FN_BOOT_AT = Date.now();
@@ -1898,8 +1899,24 @@ export async function handle(
 ): Promise<Response> {
   b497FnServed += 1;
   console.info(`[B497] fn cold=${b497FnServed === 1 ? 1 : 0} n=${b497FnServed} age_ms=${Date.now() - B497_FN_BOOT_AT} method=${req.method}`);
+  // B-497 Step 1: read per request, never at module scope (same discipline as the
+  // other flags in this file, e.g. B477_EARLY_EXIT_ENABLED above).
+  const limitInHandler = process.env.B497_LIMIT_IN_HANDLER === 'true';
+
   const early = await b477EarlyExit(req, { feedOnly, renderProfile });
   if (early) return early;
+
+  // B-497 Step 1: rate-limit gate moved into the handler, behind its own flag
+  // (default off — middleware.ts remains the live gate until this flag flips in a
+  // later step). Runs AFTER the B-477 early exit (handshake methods never pay it)
+  // and BEFORE the full server is built, so a limited request pays neither cost.
+  // See app/lib/handlerLimit.ts for the gate itself.
+  let hlSource: string | null = null;
+  if (limitInHandler) {
+    const gate = await handlerLimitGate(req);
+    if (gate.response) return gate.response;
+    hlSource = gate.source;
+  }
 
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -1949,9 +1966,13 @@ export async function handle(
   }
 
   // Anti-harvesting coverage recording (Chokepoint 2): record the EANs this
-  // response served into the source's 24h HLL. The middleware set the source
-  // header on allowed requests; allowlisted-AI / fail-open requests have none.
-  const source = req.headers.get(RL_SOURCE_HEADER);
+  // response served into the source's 24h HLL. With B497_LIMIT_IN_HANDLER on, the
+  // gate above already resolved `source` in THIS SAME invocation — use that, and
+  // never trust a client-supplied RL_SOURCE_HEADER (nothing sets it once the
+  // middleware header hop is gone for this flag state; honouring an inbound one
+  // would let a caller forge its own rate-limit key). With the flag off, the
+  // middleware still sets the header exactly as before, so keep reading it.
+  const source = limitInHandler ? hlSource : req.headers.get(RL_SOURCE_HEADER);
   if (source) {
     try {
       const json = await res.clone().json();
