@@ -1,26 +1,38 @@
 /**
- * B-497 Step 1 — handler-side rate-limit gate tests.
+ * B-497 Step 2 — handler-side rate-limit gate tests (middleware.ts removed).
+ *
+ * Flag semantics flipped for this step: the gate now runs UNLESS
+ * B497_LIMIT_IN_HANDLER === 'false' — a missing env var must never mean "no rate
+ * limit" once middleware.ts is gone. 'false' is kept only as an emergency off
+ * switch. See app/lib/mcpServer.ts's `limitInHandler` for the single source of
+ * this semantic.
  *
  * Covers:
- *   [a] B497_LIMIT_IN_HANDLER off (unset / 'false') → handle() output for the B-477
- *       golden cases and tools/list is byte-identical to the existing production
- *       goldens / fixed sha256 fingerprints (test/fixtures/b477/, and the same
- *       constants test/b477-parity.test.ts asserts against) — i.e. the new flag is
- *       provably inert when off.
+ *   [a] flag unset (new default: gate ON) vs flag 'false' (emergency off) →
+ *       handle() output for the B-477 golden cases and tools/list is
+ *       byte-identical either way to the existing production goldens / fixed
+ *       sha256 fingerprints (test/fixtures/b477/, and the same constants
+ *       test/b477-parity.test.ts asserts against) — no KV_* env in this process,
+ *       so checkLimits fails open (allowed) whenever the gate does run — AND the
+ *       gate's own `[B497] hl ...` log line appears exactly when expected: once
+ *       per request when unset, never when 'false'.
  *   [b] handlerLimitGate(): the B-364 method gate, AI-egress skip, and B-366 probe
- *       skip/shadow mirror middleware.ts exactly (same order, same log lines, same
- *       {response,source} contract) — exercised against the real, unmocked function.
- *       No network is needed: all three short-circuit before ever calling
- *       checkLimits, and KV_REST_API_URL/KV_REST_API_TOKEN are UNSET in this
- *       process (the same "fail open" state middleware.ts already documents for an
- *       absent KV_*), so the one "allowed" path exercised here (probe-shadow / a
- *       plain non-exempt request) also needs no network.
+ *       skip/shadow mirror middleware.ts's former behaviour exactly (same order,
+ *       same log lines, same {response,source} contract) — exercised against the
+ *       real, unmocked function. Unaffected by the B497_LIMIT_IN_HANDLER flip:
+ *       these tests call handlerLimitGate() directly, and that function never
+ *       reads B497_LIMIT_IN_HANDLER itself — only handle() does, to decide
+ *       whether to call it at all.
  *   [c] a forged x-bf-rl-source header on the inbound request never overrides the
  *       resolved source — it is always clientIp(req.headers).
- *   [d] flag ON + initialize (answered by b477EarlyExit) never calls
- *       handlerLimitGate at all — proven by the absence of its `[B497] hl ...` log
- *       line, the only externally observable trace it leaves; contrasted with
- *       tools/list (not handled by the early exit), which does reach it.
+ *   [d] flag unset (default ON) + initialize (answered by b477EarlyExit) never
+ *       calls handlerLimitGate at all — proven by the absence of its
+ *       `[B497] hl ...` log line, the only externally observable trace it
+ *       leaves; contrasted with tools/list (not handled by the early exit),
+ *       which does reach it.
+ *   [e] middleware.ts must not exist at the repo root — this suite's entire
+ *       premise (the handler gate is now the ONLY gate) breaks silently if
+ *       someone resurrects it.
  *
  * The "limited" (checkLimits returning ok:false) response shape is covered
  * separately in test/b497-limited-response.test.ts, which needs KV_REST_API_URL /
@@ -33,11 +45,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
 import { handle } from '../app/lib/mcpServer';
 import { handlerLimitGate } from '../app/lib/handlerLimit';
+
+// ── [e] middleware.ts must stay gone ────────────────────────────────────────────
+test('[e] middleware.ts does not exist at the repo root', () => {
+  const path = join(__dirname, '..', 'middleware.ts');
+  assert.equal(existsSync(path), false, `${path} must not exist — the handler gate is now the only gate`);
+});
 
 const FLAG = 'B497_LIMIT_IN_HANDLER';
 const B477_FLAG = 'B477_EARLY_EXIT_ENABLED';
@@ -152,25 +170,46 @@ const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }>
   '/mcp/openai': { bytes: 15865, sha256: 'a6de36069d83176ea7944a200250da6d19641edda5ec81f821702bcf345d2e32' },
 };
 
-// ── [a] flag off → byte-identical to the existing b477 goldens / fingerprints ──────
+// ── [a] byte parity either way, AND the gate runs/doesn't run as expected ─────────
+// B477_EARLY_EXIT_ENABLED is left unset throughout this section, so b477EarlyExit
+// never answers here — every GOLDEN_CASES / tools/list request in this loop falls
+// through to (and, when the gate is on, reaches) handlerLimitGate.
 for (const ch of CHANNELS) {
   for (const flag of [undefined, 'false']) {
-    test(`[a] ${ch.name}: B497_LIMIT_IN_HANDLER=${JSON.stringify(flag)} → initialize/ping/initialized unchanged`, async () => {
+    const gateShouldRun = flag !== 'false';
+
+    test(`[a] ${ch.name}: B497_LIMIT_IN_HANDLER=${JSON.stringify(flag)} → initialize/ping/initialized unchanged, gate ${gateShouldRun ? 'runs' : "doesn't run"}`, async () => {
       await withEnv({ [FLAG]: flag }, async () => {
-        for (const [name, body] of Object.entries(GOLDEN_CASES)) {
-          const res = await handle(makeRequest(ch.url, body) as unknown as NextRequest, ch.opts);
-          assertSame(await snapshot(res), readGolden(ch.fixture, name), `${ch.name} ${name} (B497=${flag})`);
-        }
+        const { lines } = await captureInfo(async () => {
+          for (const [name, body] of Object.entries(GOLDEN_CASES)) {
+            const res = await handle(makeRequest(ch.url, body) as unknown as NextRequest, ch.opts);
+            assertSame(await snapshot(res), readGolden(ch.fixture, name), `${ch.name} ${name} (B497=${flag})`);
+          }
+        });
+        const hlLines = lines.filter((l) => l.startsWith('[B497] hl'));
+        assert.equal(
+          hlLines.length,
+          gateShouldRun ? Object.keys(GOLDEN_CASES).length : 0,
+          `${ch.name} B497=${flag}: expected ${gateShouldRun ? 'one hl line per request' : 'no hl lines'}, got ${JSON.stringify(hlLines)}`,
+        );
       });
     });
 
-    test(`[a] ${ch.name}: B497_LIMIT_IN_HANDLER=${JSON.stringify(flag)} → tools/list fingerprint unchanged`, async () => {
+    test(`[a] ${ch.name}: B497_LIMIT_IN_HANDLER=${JSON.stringify(flag)} → tools/list fingerprint unchanged, gate ${gateShouldRun ? 'runs' : "doesn't run"}`, async () => {
       await withEnv({ [FLAG]: flag }, async () => {
-        const res = await handle(makeRequest(ch.url, TOOLS_LIST_ID1) as unknown as NextRequest, ch.opts);
+        const { value: res, lines } = await captureInfo(() =>
+          handle(makeRequest(ch.url, TOOLS_LIST_ID1) as unknown as NextRequest, ch.opts),
+        );
         const body = Buffer.from(await res.arrayBuffer());
         const want = TOOLS_LIST_FINGERPRINTS[ch.name];
         assert.equal(body.length, want.bytes, `tools/list bytes (B497=${flag})`);
         assert.equal(createHash('sha256').update(body).digest('hex'), want.sha256, `tools/list sha256 (B497=${flag})`);
+        const hlLines = lines.filter((l) => l.startsWith('[B497] hl'));
+        assert.equal(
+          hlLines.length,
+          gateShouldRun ? 1 : 0,
+          `${ch.name} B497=${flag}: expected ${gateShouldRun ? 'exactly one hl line' : 'no hl line'}, got ${JSON.stringify(hlLines)}`,
+        );
       });
     });
   }
@@ -285,8 +324,8 @@ test('[c] a forged x-bf-rl-source header is ignored; source is always clientIp(r
 });
 
 // ── [d] the gate never runs once b477EarlyExit already answered ────────────────────
-test('[d] flag ON + initialize is answered by b477EarlyExit; handlerLimitGate never runs', async () => {
-  await withEnv({ [FLAG]: 'true', [B477_FLAG]: 'true' }, async () => {
+test('[d] flag unset (default ON) + initialize is answered by b477EarlyExit; handlerLimitGate never runs', async () => {
+  await withEnv({ [FLAG]: undefined, [B477_FLAG]: 'true' }, async () => {
     const { value, lines } = await captureInfo(() =>
       handle(makeRequest('https://mcp.bikefuchs.com/mcp', initialize('2025-06-18')) as unknown as NextRequest, {
         feedOnly: false,
@@ -302,8 +341,8 @@ test('[d] flag ON + initialize is answered by b477EarlyExit; handlerLimitGate ne
   });
 });
 
-test('[d] flag ON + tools/list (not answered by b477EarlyExit) does reach handlerLimitGate', async () => {
-  await withEnv({ [FLAG]: 'true', [B477_FLAG]: 'true' }, async () => {
+test('[d] flag unset (default ON) + tools/list (not answered by b477EarlyExit) does reach handlerLimitGate', async () => {
+  await withEnv({ [FLAG]: undefined, [B477_FLAG]: 'true' }, async () => {
     const { lines } = await captureInfo(() =>
       handle(makeRequest('https://mcp.bikefuchs.com/mcp', TOOLS_LIST_ID1) as unknown as NextRequest, { feedOnly: false }),
     );

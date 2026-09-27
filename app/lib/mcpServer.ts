@@ -1899,9 +1899,12 @@ export async function handle(
 ): Promise<Response> {
   b497FnServed += 1;
   console.info(`[B497] fn cold=${b497FnServed === 1 ? 1 : 0} n=${b497FnServed} age_ms=${Date.now() - B497_FN_BOOT_AT} method=${req.method}`);
-  // B-497 Step 1: read per request, never at module scope (same discipline as the
-  // other flags in this file, e.g. B477_EARLY_EXIT_ENABLED above).
-  const limitInHandler = process.env.B497_LIMIT_IN_HANDLER === 'true';
+  // B-497 Step 2: middleware.ts is gone, so a missing/unset env var must never mean
+  // "no rate limit" — the gate now runs UNLESS explicitly disabled. Read per
+  // request, never at module scope (same discipline as the other flags in this
+  // file, e.g. B477_EARLY_EXIT_ENABLED above). 'false' is kept only as an
+  // emergency off switch.
+  const limitInHandler = process.env.B497_LIMIT_IN_HANDLER !== 'false';
 
   const early = await b477EarlyExit(req, { feedOnly, renderProfile });
   if (early) return early;
