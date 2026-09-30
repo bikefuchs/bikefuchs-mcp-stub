@@ -235,9 +235,16 @@ for (const ch of CHANNELS) {
 
 // Hard rule: the tools/list output must not change. Hashes are the sha256 of the full
 // tools/list response body (id 1) at production commit 993321c4.
+//
+// B-499: /mcp's fingerprint is INTENTIONALLY updated here — resolve_product's outputSchema
+// gains options[].ean.nullable(), options[].product_url and top-level min_price for the
+// claude profile only (see mcpServer.ts). /mcp/openai's fingerprint is DELIBERATELY left
+// untouched: it is the automated proof that the openai profile's outputSchema is byte-
+// identical to before this change (verified locally: recomputing it from the current code
+// still yields this exact sha256).
 const TOOLS_LIST_ID1: Case = { body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } };
 const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
-  '/mcp': { bytes: 13792, sha256: 'a757f24351d83d7645bcc433ea9d6500ab6ffa4a7e8db905735bbb2dbc647ce2' },
+  '/mcp': { bytes: 14038, sha256: 'b7f5899cf8c5aa720065c399ff14d66d55bcdb0585d591d31b0706d16225b923' },
   '/mcp/openai': { bytes: 15865, sha256: 'a6de36069d83176ea7944a200250da6d19641edda5ec81f821702bcf345d2e32' },
 };
 

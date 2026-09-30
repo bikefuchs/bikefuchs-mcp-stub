@@ -165,8 +165,10 @@ const GOLDEN_CASES: Record<string, unknown> = {
 };
 const TOOLS_LIST_ID1 = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
 // Same constants test/b477-parity.test.ts asserts against — production commit 993321c4.
+// B-499: /mcp updated (resolve_product outputSchema gained new claude-only fields); /mcp/openai
+// deliberately left unchanged — see the matching comment in b477-parity.test.ts.
 const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
-  '/mcp': { bytes: 13792, sha256: 'a757f24351d83d7645bcc433ea9d6500ab6ffa4a7e8db905735bbb2dbc647ce2' },
+  '/mcp': { bytes: 14038, sha256: 'b7f5899cf8c5aa720065c399ff14d66d55bcdb0585d591d31b0706d16225b923' },
   '/mcp/openai': { bytes: 15865, sha256: 'a6de36069d83176ea7944a200250da6d19641edda5ec81f821702bcf345d2e32' },
 };
 

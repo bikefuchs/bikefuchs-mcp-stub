@@ -1490,7 +1490,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // Present when status === 'pick_variant': one entry per sibling variant of the family.
         axis: z.string().optional().describe("Variant axis of the options: 'size', 'colour', 'mixed', 'size_name' or 'name'."),
         options: z.array(z.object({
-          ean: z.string().describe("EAN of this exact variant — use it with get_best_price / optimize_cart."),
+          // B-499 (claude profile only): a size without a barcode at the shop is null — there
+          // is then no cross-shop price comparison for it, use product_url instead. The openai
+          // profile's schema is untouched (still a required string) — see the ticket's own
+          // "openai must remain exactly as today".
+          ean: renderProfile === 'openai'
+            ? z.string().describe("EAN of this exact variant — use it with get_best_price / optimize_cart.")
+            : z.string().nullable().describe("EAN of this exact variant; null when the shop has no barcode for this size — then there is no price comparison, use product_url."),
           size: z.string().nullable().optional(),
           colour: z.string().nullable().optional(),
           // B-264b: without this the SDK's outputSchema validation would silently strip
@@ -1507,7 +1513,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           // number/boolean and validate exactly as before.
           price: z.number().nullable().optional().describe("Price at the input shop; null when only a family-level page price exists."),
           in_stock: z.boolean().nullable().optional().describe("Stock at the input shop; null when unknown per variant."),
+          // B-499 (claude profile only, additive): omitted entirely on openai so its schema
+          // stays byte-identical to today.
+          ...(renderProfile === 'openai'
+            ? {}
+            : { product_url: z.string().optional().describe("Direct /go/ link to this exact size at the input shop.") }),
         })).optional().describe("Variants of ONE product. Ask the user to pick one, then use that variant's EAN."),
+        // B-499 (claude profile only, additive): omitted entirely on openai so its schema
+        // stays byte-identical to today.
+        ...(renderProfile === 'openai' ? {} : { min_price: z.number().nullable().optional() }),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
           ? {
@@ -1576,7 +1590,21 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             // auf Lager"). Feed options (number/boolean always set) render byte-identically.
             const priceSeg = o.price != null ? ` — ${formatEuro(o.price)}` : '';
             const stockSeg = o.in_stock != null ? ` — ${o.in_stock ? '✅ auf Lager' : '❌ nicht auf Lager'}` : '';
-            return `${i + 1}. ${label}${priceSeg}${stockSeg} — EAN: ${o.ean}`;
+            if (renderProfile === 'openai') {
+              // openai: byte-identical to pre-B-499 rendering — literal EAN segment even when
+              // null (its outputSchema is untouched and will reject a null ean either way; this
+              // file's own text must not diverge for openai regardless — see the ticket's MUST NOT).
+              return `${i + 1}. ${label}${priceSeg}${stockSeg} — EAN: ${o.ean}`;
+            }
+            // B-499 (claude only): a size with no barcode gets a direct link instead of a
+            // fabricated "EAN: null". Same link helper (buildGoUrl) the file already uses
+            // elsewhere for claude; ean is deliberately passed as null so it never fabricates
+            // a canonical /go/<shop>/<ean> link here — it only ever trusts o.product_url.
+            const goLink = buildGoUrl(data.shop_id ?? null, null, 'resolve_product', o.product_url);
+            const eanSeg = o.ean != null
+              ? ` — EAN: ${o.ean}${goLink ? ` — [${label}](${goLink})` : ''}`
+              : ` — kein Strichcode, direkter Link: ${goLink ? `[${label}](${goLink})` : '(kein Link verfügbar)'}`;
+            return `${i + 1}. ${label}${priceSeg}${stockSeg}${eanSeg}`;
           });
           const link = data.family_url ? `\n\n${data.family_url}` : '';
           // Model-facing anchor directive (English, per convention: user-facing strings German,
@@ -1585,7 +1613,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `\n\n---\n\nInstructions for the assistant: the options above are variants of ONE product` +
             `${data.axis ? ` (variant axis: ${data.axis})` : ''}. Ask the user which size/colour/variant they want. ` +
             `When the user chooses, call get_best_price (single product) or optimize_cart (multiple products) ` +
-            `with the EAN listed next to that exact variant. NEVER search for the variant by free-text description.`;
+            `with the EAN listed next to that exact variant. NEVER search for the variant by free-text description.` +
+            // B-499 (claude only): openai's directive equivalent (next_step.hint) is untouched.
+            (renderProfile === 'openai' ? '' : ` If the chosen variant has no EAN, do NOT call get_best_price/optimize_cart; give the user that variant's direct link and say there is no price comparison for it.`);
           return {
             ...mcpText(`## Variante wählen\n\n${msg}\n\n${lines.join('\n')}${link}${directive}${footer(renderProfile)}`),
             structuredContent: {
@@ -1595,6 +1625,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               resolved: false,
               axis: data.axis,
               options: data.options,
+              // B-499: declared in the claude schema only — the SDK silently strips this key
+              // for openai (undeclared field), same pattern as donor_label/product_name above.
+              min_price: data.min_price,
               family_url: data.family_url,
               message: msg,
               ...(renderProfile === 'openai'
@@ -2138,7 +2171,8 @@ interface ResolveResult {
   // B-259: labeled variant options of one multi-variant family (present with 'pick_variant').
   axis?: string;
   options?: Array<{
-    ean: string;
+    // B-499: null when the shop has no barcode for this size (Bike-Discount no-EAN sizes).
+    ean: string | null;
     size: string | null;
     colour: string | null;
     // B-256 Phase 2: null on scraping-family options (no per-variant price/stock exists).
@@ -2150,5 +2184,10 @@ interface ResolveResult {
     // B-275: verbatim product name (flat 'name' axis only) — the choice label when there
     // is no size/colour/donor_label at all. Never co-present with donor_label.
     product_name?: string;
+    // B-499: direct /go/ link to this exact size at the input shop — present especially
+    // (but not only) when ean is null, since there is then no EAN-based /go/ link to build.
+    product_url?: string | null;
   }>;
+  // B-499: lowest price across the sibling options, when known.
+  min_price?: number | null;
 }
