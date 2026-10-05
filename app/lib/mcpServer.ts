@@ -439,6 +439,88 @@ function mcpError(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
+// ── B-404: resolve_product failure reasons (switch B404_STUB_REASONS_ENABLED) ─────────────────
+// The main app's POST /api/products/resolve adds `reason` to every failure body (status codes
+// unchanged). With the switch ON the handler turns it into the right answer for the user:
+// a NORMAL not_resolved result where nothing is broken, an honest error only for real read
+// failures. Switch OFF (anything but the exact string "true") = today's code paths, untouched.
+// CEO decisions 05.10. (binding): never say a shop is "not supported"; the German texts are verbatim.
+const B404_T1 = "Diese URL konnte ich nicht auslesen. Nenn mir den genauen Produktnamen oder die EAN-Nummer.";
+const B404_T2 = "Diese URL konnte ich gerade nicht auslesen. Nenn mir den genauen Produktnamen oder die EAN-Nummer.";
+const B404_T3 = "Dieses Produkt bietet der Shop nicht mehr an. Nenn mir den genauen Produktnamen oder die EAN-Nummer, dann suche ich es in anderen Shops.";
+const B404_DIRECTIVE =
+  "Tell the user the following sentence (translate only if the user writes in another language). Then, when the user gives a product name, call search_product; when they give an EAN, call get_best_price. Do not search the web for prices.";
+
+function b404StubReasonsEnabled(): boolean {
+  return process.env.B404_STUB_REASONS_ENABLED === 'true';
+}
+
+/**
+ * Same as apiJson, but also reports res.ok (apiJson drops it). Identical fetch + non-JSON
+ * guard, so resolve_product's request and its S3 error text are unchanged.
+ */
+async function apiJsonWithOk<T>(path: string, options?: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<{ ok: boolean; data: T }> {
+  const res = await apiFetch(path, options, timeoutMs);
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const body = await res.text();
+    console.error(`[MCP] Non-JSON response from ${path}: ${contentType} — ${body.substring(0, 200)}`);
+    throw new Error(`API returned unexpected content (${contentType || "unknown"}). The bikefuchs.com API may be temporarily unavailable.`);
+  }
+  return { ok: res.ok, data: (await res.json()) as T };
+}
+
+/** ERROR result (isError:true) for a real read failure: directive + T2, no structuredContent. */
+function b404ReadFailedResult(profile: RenderProfile) {
+  return mcpError(`${B404_DIRECTIVE}\n\n${B404_T2}${footer(profile)}`);
+}
+
+/**
+ * NORMAL (isError:false) result in the existing `not_resolved` shape. Only fields already in
+ * the profile's outputSchema are used: claude has no tell_user/next_step, so the directive lives
+ * in content only there; openai carries it in next_step.hint and the user text in tell_user.
+ */
+function b404NotResolvedResult(profile: RenderProfile, userText: string, productName?: string | null, shop?: string | null) {
+  return {
+    ...mcpText(`${B404_DIRECTIVE}\n\n${userText}${footer(profile)}`),
+    structuredContent: {
+      product_name: productName || 'Das Produkt', // required (string)
+      shop: shop || '',                           // required (string); never guessed
+      status: 'not_resolved',
+      resolved: false,
+      message: userText,
+      ...(profile === 'openai'
+        ? {
+            disclosure: footer(profile),
+            tell_user: userText,
+            next_step: { tool: 'search_product', hint: B404_DIRECTIVE },
+          }
+        : {}),
+    },
+  };
+}
+
+/**
+ * Maps a main-app failure body to a result, or null = "not mine, keep today's handling"
+ * (success bodies, soft 200 bodies, bad_request, no_identifier).
+ */
+function b404ResolveFailureResult(profile: RenderProfile, ok: boolean, data: ResolveResult) {
+  if (ok && !data.error) return null;
+  switch (data.reason) {
+    case 'bad_request':
+    case 'no_identifier':
+      return null;
+    case 'unsupported_url':
+    case 'not_found':
+    case 'not_in_catalog':
+      return b404NotResolvedResult(profile, B404_T1, data.product_name, data.shop);
+    case 'delisted':
+      return b404NotResolvedResult(profile, B404_T3, data.product_name, data.shop);
+    default: // read_failed, an unknown future value, or a non-2xx body without `reason`
+      return b404ReadFailedResult(profile);
+  }
+}
+
 function formatEuro(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
 }
@@ -1541,14 +1623,21 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
     async ({ url, country }) => {
       trackMcpEvent("MCP Resolve", { url });
       console.info(`[MCP] resolve_product: url=${url} country=${country}`);
+      // B-404: read per call (exact "true" only).
+      const b404 = b404StubReasonsEnabled();
       try {
-        const data = await apiJson<ResolveResult>("/api/products/resolve", {
+        const { ok: apiOk, data } = await apiJsonWithOk<ResolveResult>("/api/products/resolve", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           // Feed-only mode: the API rejects scraping-shop URLs and never lists the
           // 3 scraping shops in its "unsupported URL" error text.
           body: JSON.stringify(feedOnly ? { url, country, feedOnly: true } : { url, country }),
         }, 25000);
+
+        if (b404) {
+          const mapped = b404ResolveFailureResult(renderProfile, apiOk, data);
+          if (mapped) return mapped;
+        }
 
         if (data.error) {
           return mcpError(`Could not resolve product: ${data.error}${footer(renderProfile)}`);
@@ -1711,6 +1800,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           },
         };
       } catch (err) {
+        // B-404 (switch ON): abort / network / non-JSON is a real read failure → directive + T2.
+        if (b404) return b404ReadFailedResult(renderProfile);
         return mcpError(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
@@ -2163,6 +2254,9 @@ interface ResolveResult {
   // B-370: see ProductSearchResult.price_as_of. OPTIONAL, CONTENT-only.
   price_as_of?: string | null;
   error?: string;
+  // B-404: why the main app could not resolve (bad_request | unsupported_url | not_in_catalog |
+  // no_identifier | delisted | not_found | read_failed). Only read when B404_STUB_REASONS_ENABLED.
+  reason?: string;
   // B-044: present when the family was found but the exact variant is undeterminable.
   // B-259: 'pick_variant' when the API relays labeled sibling options (see `options`).
   status?: 'not_resolved' | 'pick_variant';
