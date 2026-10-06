@@ -17,10 +17,6 @@ import { trackMcpEvent } from "./tracking";
 import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimit";
 import { handlerLimitGate } from "./handlerLimit";
 
-// B-497 DIAG — temporary. Remove after the cold-start measurement.
-const B497_FN_BOOT_AT = Date.now();
-let b497FnServed = 0;
-
 // B-417: fall back to the apex — the www subdomain 307-redirects to it (Vercel
 // domain config, since May 2026), so a stale fallback here costs the same
 // extra hop on every call that falls through to it.
@@ -2021,8 +2017,6 @@ export async function handle(
   req: NextRequest,
   { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
 ): Promise<Response> {
-  b497FnServed += 1;
-  console.info(`[B497] fn cold=${b497FnServed === 1 ? 1 : 0} n=${b497FnServed} age_ms=${Date.now() - B497_FN_BOOT_AT} method=${req.method}`);
   // B-497 Step 2: middleware.ts is gone, so a missing/unset env var must never mean
   // "no rate limit" — the gate now runs UNLESS explicitly disabled. Read per
   // request, never at module scope (same discipline as the other flags in this
