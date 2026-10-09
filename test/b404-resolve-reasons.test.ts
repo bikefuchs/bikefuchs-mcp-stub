@@ -24,8 +24,8 @@ const T2 = 'Diese URL konnte ich gerade nicht auslesen. Nenn mir den genauen Pro
 const T3 = 'Dieses Produkt bietet der Shop nicht mehr an. Nenn mir den genauen Produktnamen oder die EAN-Nummer, dann suche ich es in anderen Shops.';
 const DIRECTIVE =
   'Tell the user the following sentence (translate only if the user writes in another language). Then, when the user gives a product name, call search_product; when they give an EAN, call get_best_price. Do not search the web for prices.';
-const FOOTER_CLAUDE = '\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Kann Affiliate-Links enthalten*';
-const FOOTER_OPENAI = '\n\n---\nPowered by Bikefuchs 🦊 · https://bikefuchs.com · Kann Affiliate-Links enthalten';
+const FOOTER_CLAUDE = '\n\n---\n*Powered by [Bikefuchs](https://bikefuchs.com)* 🦊 *· Preise & Verfügbarkeit ohne Gewähr · Kann Affiliate-Links enthalten*';
+const FOOTER_OPENAI = '\n\n---\nPowered by Bikefuchs 🦊 · https://bikefuchs.com · Preise & Verfügbarkeit ohne Gewähr · Kann Affiliate-Links enthalten';
 
 type Profile = 'claude' | 'openai';
 const PROFILES: Array<{ name: Profile; url: string; opts: { feedOnly: boolean; renderProfile?: Profile }; footer: string }> = [
