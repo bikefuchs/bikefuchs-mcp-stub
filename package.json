@@ -9,6 +9,7 @@
     "test:b477": "node --import tsx --test test/b477-parity.test.ts",
     "test:b492": "node --import tsx --test test/b492-server-card.test.ts test/b477-parity.test.ts",
     "test:b497": "node --import tsx --test test/b497-handler-limit.test.ts",
+    "test:b514": "node --import tsx --test test/b514-get-405.test.ts",
     "test:b497-limited": "KV_REST_API_URL=https://fake-upstash.invalid KV_REST_API_TOKEN=fake-test-token node --import tsx --test test/b497-limited-response.test.ts"
   },
   "dependencies": {

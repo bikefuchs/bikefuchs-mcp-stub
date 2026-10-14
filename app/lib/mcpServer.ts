@@ -2013,6 +2013,38 @@ export async function b477EarlyExit(
   return res;
 }
 
+// B-365 TEMPORARY DIAGNOSTIC (GET) — extracted unchanged from handle() so the
+// B-514 early 405 prints the identical line. Header reads are inlined (not
+// imported from rateLimit.ts) per the same derivation as clientIp() there:
+// x-vercel-forwarded-for, falling back to x-forwarded-for.
+function logB365GetDiag(req: NextRequest): void {
+  const ua = req.headers.get('user-agent') ?? 'none';
+  const fwd = req.headers.get('x-vercel-forwarded-for') ?? req.headers.get('x-forwarded-for') ?? '';
+  const ip = fwd.split(',')[0].trim() || 'none';
+  const acceptsSse = req.headers.get('accept')?.includes('text/event-stream') ?? false;
+  console.info(`[B365-DIAG] path=${req.nextUrl.pathname} accept_sse=${acceptsSse} ip=${ip} ua="${ua}"`);
+}
+
+// B-514: we never push server-initiated messages, so the standalone GET SSE
+// stream has no function here, yet one client reopens it every ~16 s (the B-365
+// 15 s close, then an immediate reconnect) and keeps the function running around
+// the clock. The MCP spec (Streamable HTTP, GET) allows answering 405 instead:
+// "the server does not offer an SSE stream at this endpoint". Flag-gated: OFF
+// unless B514_GET_405_ENABLED is exactly "true", read per request, never at
+// module scope. Only GETs that ask for text/event-stream are answered; a GET
+// without it still takes the unchanged path (the transport's 406). No CORS
+// headers: the GET response never carried any. Runs before the rate-limit gate,
+// the transport and the server build, so it makes no Upstash call.
+function b514GetEarly405(req: NextRequest): Response | null {
+  if (process.env.B514_GET_405_ENABLED !== 'true') return null;
+  if (req.method !== 'GET') return null;
+  if (!req.headers.get('accept')?.includes('text/event-stream')) return null;
+
+  logB365GetDiag(req);
+  console.info(`[B514] get405 path=${req.nextUrl.pathname}`);
+  return new Response(null, { status: 405, headers: { Allow: 'POST, OPTIONS' } });
+}
+
 export async function handle(
   req: NextRequest,
   { feedOnly, renderProfile = 'claude' }: { feedOnly: boolean; renderProfile?: RenderProfile },
@@ -2023,6 +2055,9 @@ export async function handle(
   // file, e.g. B477_EARLY_EXIT_ENABLED above). 'false' is kept only as an
   // emergency off switch.
   const limitInHandler = process.env.B497_LIMIT_IN_HANDLER !== 'false';
+
+  const get405 = b514GetEarly405(req);
+  if (get405) return get405;
 
   const early = await b477EarlyExit(req, { feedOnly, renderProfile });
   if (early) return early;
@@ -2073,11 +2108,7 @@ export async function handle(
   // derivation as clientIp() there: x-vercel-forwarded-for, falling back to
   // x-forwarded-for.
   if (req.method === 'GET') {
-    const ua = req.headers.get('user-agent') ?? 'none';
-    const fwd = req.headers.get('x-vercel-forwarded-for') ?? req.headers.get('x-forwarded-for') ?? '';
-    const ip = fwd.split(',')[0].trim() || 'none';
-    const acceptsSse = req.headers.get('accept')?.includes('text/event-stream') ?? false;
-    console.info(`[B365-DIAG] path=${req.nextUrl.pathname} accept_sse=${acceptsSse} ip=${ip} ua="${ua}"`);
+    logB365GetDiag(req);
 
     // B-365: bound the SSE stream's lifetime instead of letting Vercel kill
     // it at the 300s function timeout. No-op if the stream is already gone
