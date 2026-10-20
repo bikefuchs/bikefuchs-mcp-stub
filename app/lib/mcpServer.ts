@@ -382,6 +382,51 @@ function buildGoUrl(shopId: string | null, ean: string | null, toolName: string,
   return readyLink && isTrustedGoLink(readyLink) ? readyLink : "";
 }
 
+// B-519: the single definition of "stale" — `price_as_of` present, parsable and older than
+// 24 h. priceAgeNote (B-370) and the B-519 structured fields / winner gate all call this,
+// so the text note and the structured flag can never disagree.
+function isPriceStale(priceAsOf?: string | null): boolean {
+  if (!priceAsOf) return false;
+  const asOf = new Date(priceAsOf);
+  if (Number.isNaN(asOf.getTime())) return false;
+  return Date.now() - asOf.getTime() > 24 * 60 * 60 * 1000;
+}
+
+// B-519: feature flag, default OFF. Enabled only when the value is exactly "true". Read at
+// CALL TIME (same convention as B-309 / B-514). Flag OFF ⇒ every B-519 branch collapses to
+// today's code, so responses and tools/list are byte-identical.
+function b519Enabled(): boolean {
+  return process.env.B519_STALE_PRICE_ENABLED === 'true';
+}
+
+// B-519: winner selection as a pure helper (tests drive the SAME code the tools run).
+// Flag OFF ⇒ exactly `results.find(b309WinnerEligible) ?? null`. Flag ON ⇒ among the
+// B-309-eligible rows a non-stale row beats a stale one; if every eligible row is stale the
+// cheapest stale row still wins (today's behaviour) and `allStale` is true.
+export function b519SelectWinner<T extends { in_stock: boolean; variantUncertain?: boolean; price_as_of?: string | null }>(
+  results: T[],
+): { winner: T | null; allStale: boolean } {
+  if (!b519Enabled()) return { winner: results.find(b309WinnerEligible) ?? null, allStale: false };
+  const eligible = results.filter(b309WinnerEligible);
+  const fresh = eligible.find(r => !isPriceStale(r.price_as_of));
+  if (fresh) return { winner: fresh, allStale: false };
+  return { winner: eligible[0] ?? null, allStale: eligible.length > 0 };
+}
+
+// B-519: per-entry structured age fields. Empty object when the flag is OFF.
+export function b519AgeFields(r: { price_as_of?: string | null }): { price_as_of?: string; price_stale?: true } {
+  if (!b519Enabled()) return {};
+  return {
+    ...(r.price_as_of ? { price_as_of: r.price_as_of } : {}),
+    ...(isPriceStale(r.price_as_of) ? { price_stale: true as const } : {}),
+  };
+}
+
+// B-519: the single optimize_cart line for excluded stale offers (verbatim German template).
+export function b519ExcludedLine(shops: string[]): string {
+  return `Nicht berücksichtigt (Preis älter als 24 Stunden, wird gerade aktualisiert): ${shops.join(", ")}. In etwa 30 Sekunden erneut abfragen.`;
+}
+
 // B-370: age disclosure for a scraped-shop row. `price_as_of` is OPTIONAL — the main
 // app may not send it yet (ships same day per Mario) or may never send it for a feed
 // row; absent/unparsable = "" = no-op, byte-identical to pre-B-370. CONTENT block only,
@@ -390,11 +435,8 @@ function buildGoUrl(shopId: string | null, ean: string | null, toolName: string,
 // is genuinely stale (>24h) — a fresh scrape says nothing extra. German date, no year
 // (matches the existing bikefuchs.com date convention).
 function priceAgeNote(priceAsOf?: string | null): string {
-  if (!priceAsOf) return "";
-  const asOf = new Date(priceAsOf);
-  if (Number.isNaN(asOf.getTime())) return "";
-  const ageMs = Date.now() - asOf.getTime();
-  if (ageMs <= 24 * 60 * 60 * 1000) return "";
+  if (!isPriceStale(priceAsOf)) return "";
+  const asOf = new Date(priceAsOf as string);
   const day = String(asOf.getDate()).padStart(2, '0');
   const month = String(asOf.getMonth() + 1).padStart(2, '0');
   return ` (Preis vom ${day}.${month}.)`;
@@ -752,9 +794,11 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           currency: z.string(),
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop. Always show this URL to the user."),
+          ...(b519Enabled() ? { price_as_of: z.string().optional(), price_stale: z.boolean().optional() } : {}),
         })),
         cheapest_shop: z.string(),
         cheapest_price: z.number(),
+        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional() } : {}),
         next_step: z.object({
           tool: z.string(),
           hint: z.string(),
@@ -818,7 +862,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // B-309: an uncertain row can never be crowned — the winner is the cheapest row
         // that is in_stock AND not variant-uncertain. Flag OFF ⇒ isVariantUncertain is
         // always false ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
-        const cheapestInStock = results.find(b309WinnerEligible) ?? null;
+        // B-519: flag OFF ⇒ identical to `results.find(b309WinnerEligible) ?? null`.
+        const { winner: cheapestInStock, allStale: cheapestAllStale } = b519SelectWinner(results);
         const productName = cheapest.product_name ?? "Product";
         const lines = results.map((r, i) => {
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
@@ -897,9 +942,11 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               // (B-046 in review). Flag OFF ⇒ isVariantUncertain false ⇒ today's value.
               availability: (renderProfile !== 'openai' && isVariantUncertain(r)) ? "unknown" : (r.in_stock ? "in_stock" : "out_of_stock"),
               affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
+              ...b519AgeFields(r),
             })),
             cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
             cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
+            ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
@@ -950,6 +997,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           eans_to_refresh: z.array(z.string()),
           suggestion: z.string(),
         }).optional(),
+        ...(b519Enabled() ? { excluded_stale_offers: z.object({ count: z.number(), shops: z.array(z.string()) }).optional() } : {}),
         // B-162 pilot: openai profile only. Spread is empty on the claude
         // profile, so the claude outputSchema stays byte-identical to main.
         ...(renderProfile === 'openai'
@@ -1060,6 +1108,19 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               `    `,
             ) + `\n`;
           }
+        }
+
+        // B-519: offers the main app left out of the cart for age (>24 h). Shape is exactly
+        // {count, shops[]} (main app optimize-from-eans/route.ts:342-343). Flag OFF ⇒ null ⇒ no line.
+        const excludedStale = b519Enabled()
+          && data.excluded_stale_offers
+          && data.excluded_stale_offers.count > 0
+          && Array.isArray(data.excluded_stale_offers.shops)
+          && data.excluded_stale_offers.shops.length > 0
+          ? data.excluded_stale_offers
+          : null;
+        if (excludedStale) {
+          md += `\n${b519ExcludedLine(excludedStale.shops)}\n`;
         }
 
         const baselineLabel = result.baselineType === 'source_shops'
@@ -1183,6 +1244,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
+              ...(excludedStale ? { excluded_stale_offers: excludedStale } : {}),
               disclosure: footer(renderProfile),
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
               savings: result.savings !== null
@@ -1206,6 +1268,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
+              ...(excludedStale ? { excluded_stale_offers: excludedStale } : {}),
               disclosure: footer(renderProfile),
             };
 
@@ -1427,7 +1490,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           currency: z.string(),
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop."),
+          ...(b519Enabled() ? { price_as_of: z.string().optional(), price_stale: z.boolean().optional() } : {}),
         })),
+        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional() } : {}),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
           ? {
@@ -1471,7 +1536,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // not the cheapest by price alone. null = every shop is out of stock (no trophy).
         // B-309: uncertain row never crowned. Flag OFF ⇒ isVariantUncertain always false
         // ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
-        const cheapestInStock = results.find(b309WinnerEligible) ?? null;
+        // B-519: flag OFF ⇒ identical to `results.find(b309WinnerEligible) ?? null`.
+        const { winner: cheapestInStock, allStale: cheapestAllStale } = b519SelectWinner(results);
         let md = `## Where to Buy: ${productName}\n\nEAN: ${ean} · ${country} · ${results.length} shop(s) carry this product\n\n`;
 
         for (let i = 0; i < results.length; i++) {
@@ -1523,7 +1589,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               // UNCONDITIONALLY today's value (B-046 in review). Flag OFF ⇒ today's value.
               availability: (renderProfile !== 'openai' && isVariantUncertain(r)) ? "unknown" : (r.in_stock ? "in_stock" : "out_of_stock"),
               affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
+              ...b519AgeFields(r),
             })),
+            ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
             ...(renderProfile === 'openai'
               ? {
                   disclosure: footer(renderProfile),
@@ -2265,6 +2333,9 @@ interface OptimizeFromEansResult {
     shops_missing: string[];
     suggestion: string;
   };
+  // B-519: offers excluded by the main app's 24 h freshness gate (B-511 M3). Present only when
+  // count > 0. shops = de-duplicated shop display names. No per-offer detail is sent.
+  excluded_stale_offers?: { count: number; shops: string[] };
 }
 
 interface ResolveResult {
