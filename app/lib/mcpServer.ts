@@ -427,6 +427,53 @@ export function b519ExcludedLine(shops: string[]): string {
   return `Nicht berücksichtigt (Preis älter als 24 Stunden, wird gerade aktualisiert): ${shops.join(", ")}. In etwa 30 Sekunden erneut abfragen.`;
 }
 
+// ── B-519 part 2: wait-and-refetch for a stale bike-components price ─────────────────────
+// The main app refreshes a stale row in the background on ANY lookup; the fresh price is in
+// the database ~1–2 s later. So with the flag ON the stub waits 3 s and asks again (at most
+// 2 extra fetches ⇒ at most 6 s of added waiting) and builds the answer from the LAST fetch.
+// Re-fetches use the normal apiJson timeout (FETCH_TIMEOUT_MS). A failed re-fetch keeps the
+// previous result. Flag OFF ⇒ exactly one fetch, as before.
+const B519_REFETCH_MAX_EXTRA = 2;
+let b519RefetchWaitMs = 3000;
+/** Test hook only: shortens the 3 s wait so unit tests do not sleep. */
+export function __b519SetRefetchWaitMsForTest(ms: number): void { b519RefetchWaitMs = ms; }
+
+async function b519FetchWithRefresh<T>(fetchOnce: () => Promise<T>, needsRefresh: (d: T) => boolean, what: string): Promise<T> {
+  let last = await fetchOnce();
+  if (!b519Enabled()) return last;
+  for (let i = 0; i < B519_REFETCH_MAX_EXTRA && needsRefresh(last); i++) {
+    await new Promise<void>(resolve => setTimeout(resolve, b519RefetchWaitMs));
+    try {
+      last = await fetchOnce();
+      console.info(`[B519] ${what}: re-fetch ${i + 1}/${B519_REFETCH_MAX_EXTRA} done, stale-after=${needsRefresh(last)}`);
+    } catch (err) {
+      console.info(`[B519] ${what}: re-fetch ${i + 1} failed (${err instanceof Error ? err.message : String(err)}) — keeping previous result`);
+      break;
+    }
+  }
+  return last;
+}
+
+function b519AnyStale(rows: Array<{ price_as_of?: string | null }> | undefined): boolean {
+  return (rows ?? []).some(r => isPriceStale(r.price_as_of));
+}
+
+// Still-stale after the last fetch: structured flag + one model-facing line per stale shop.
+export function b519RefreshPending(
+  rows: Array<{ shop: string; price_as_of?: string | null }>,
+  toolName: string,
+): { fields: { refresh_pending?: true; retry_after_seconds?: number }; hint: string } {
+  if (!b519Enabled()) return { fields: {}, hint: "" };
+  const stale = rows.filter(r => isPriceStale(r.price_as_of));
+  if (stale.length === 0) return { fields: {}, hint: "" };
+  const lines = stale.map(r => {
+    const d = new Date(r.price_as_of as string);
+    const dm = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
+    return `⏳ IMPORTANT — the price of ${r.shop} is being refreshed right now (shown price is from ${dm}). Call ${toolName} for this exact EAN ONE more time in about 30 seconds and tell the user you are checking the current price. Do this only ONCE.`;
+  });
+  return { fields: { refresh_pending: true, retry_after_seconds: 30 }, hint: `\n\n${lines.join("\n")}` };
+}
+
 // B-370: age disclosure for a scraped-shop row. `price_as_of` is OPTIONAL — the main
 // app may not send it yet (ships same day per Mario) or may never send it for a feed
 // row; absent/unparsable = "" = no-op, byte-identical to pre-B-370. CONTENT block only,
@@ -798,7 +845,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         })),
         cheapest_shop: z.string(),
         cheapest_price: z.number(),
-        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional() } : {}),
+        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional(), refresh_pending: z.boolean().optional(), retry_after_seconds: z.number().optional() } : {}),
         next_step: z.object({
           tool: z.string(),
           hint: z.string(),
@@ -824,7 +871,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Best Price", { ean });
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
-        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
+        const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        const data = await b519FetchWithRefresh(
+          gbpFetch,
+          d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
+          `get_best_price ${ean}`,
+        );
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter; cheapest
         // is recomputed from the filtered (still cheapest-first) list.
@@ -864,6 +917,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // always false ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
         // B-519: flag OFF ⇒ identical to `results.find(b309WinnerEligible) ?? null`.
         const { winner: cheapestInStock, allStale: cheapestAllStale } = b519SelectWinner(results);
+        const refreshPending = b519RefreshPending(results, "get_best_price");
         const productName = cheapest.product_name ?? "Product";
         const lines = results.map((r, i) => {
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
@@ -928,7 +982,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${footer(renderProfile)}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${refreshPending.hint}${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
@@ -947,6 +1001,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
             cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
             ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
+            ...refreshPending.fields,
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
             reference_comparison: referenceComparison,
             ...(renderProfile === 'openai'
@@ -1034,13 +1089,20 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Optimize Cart", { product_count: eans.length, country });
       console.info(`[MCP] optimize_cart: ${eans.length} EAN(s) country=${country}`);
       try {
-        const data = await apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          // Feed-only mode: the API skips scraping shops AND the stale-prices gate,
-          // so optimization runs over feed shops only and is never blocked by them.
-          body: JSON.stringify(feedOnly ? { eans, country, feedOnly: true } : { eans, country }),
-        });
+        // B-519 part 2: the recovery case is the main app's 422 `error: 'stale_prices'` body (the same
+        // condition the recovery message below keys on). Flag ON ⇒ wait 3 s and ask again, at most 2 extra
+        // calls; a still-recovering answer falls through to the unchanged message. Flag OFF ⇒ one call.
+        const data = await b519FetchWithRefresh(
+          () => apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // Feed-only mode: the API skips scraping shops AND the stale-prices gate,
+            // so optimization runs over feed shops only and is never blocked by them.
+            body: JSON.stringify(feedOnly ? { eans, country, feedOnly: true } : { eans, country }),
+          }),
+          d => !d.success && d.error === 'stale_prices',
+          `optimize_cart ${eans.length} EAN(s)`,
+        );
 
         if (!data.success || !data.result) {
           if (data.error === 'missing_prices' && data.missing_eans?.length) {
@@ -1492,7 +1554,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           affiliate_url: z.string().describe("Direct link to buy at this shop."),
           ...(b519Enabled() ? { price_as_of: z.string().optional(), price_stale: z.boolean().optional() } : {}),
         })),
-        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional() } : {}),
+        ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional(), refresh_pending: z.boolean().optional(), retry_after_seconds: z.number().optional() } : {}),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
           ? {
@@ -1508,7 +1570,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Alternatives", { ean });
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
-        const data = await apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
+        const altFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        const data = await b519FetchWithRefresh(
+          altFetch,
+          d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
+          `find_alternatives ${ean}`,
+        );
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter.
         const results = feedOnly && data.results
@@ -1538,6 +1606,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // ⇒ identical to the pre-B-309 `results.find(r => r.in_stock)`.
         // B-519: flag OFF ⇒ identical to `results.find(b309WinnerEligible) ?? null`.
         const { winner: cheapestInStock, allStale: cheapestAllStale } = b519SelectWinner(results);
+        const refreshPending = b519RefreshPending(results, "find_alternatives_for_product");
         let md = `## Where to Buy: ${productName}\n\nEAN: ${ean} · ${country} · ${results.length} shop(s) carry this product\n\n`;
 
         for (let i = 0; i < results.length; i++) {
@@ -1577,7 +1646,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         return {
-          ...mcpText(md + footer(renderProfile)),
+          ...mcpText(md + refreshPending.hint + footer(renderProfile)),
           structuredContent: {
             ean,
             product_name: productName,
@@ -1592,6 +1661,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               ...b519AgeFields(r),
             })),
             ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
+            ...refreshPending.fields,
             ...(renderProfile === 'openai'
               ? {
                   disclosure: footer(renderProfile),
