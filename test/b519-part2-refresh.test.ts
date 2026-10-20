@@ -47,7 +47,8 @@ async function run(flag: string | undefined, waitMs: number, replies: Reply[], b
     if (r instanceof Error) throw r;
     return new Response(JSON.stringify(r), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
-  console.info = () => {};
+  const logs: string[] = [];
+  console.info = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
   const t0 = Date.now();
   try {
     const res = await handle(
@@ -56,7 +57,7 @@ async function run(flag: string | undefined, waitMs: number, replies: Reply[], b
     );
     const text = await res.text();
     const line = text.split('\n').find((l) => l.startsWith('data: ')) ?? text;
-    return { out: JSON.parse(line.replace(/^data: /, '')) as Rpc, calls, ms: Date.now() - t0 };
+    return { out: JSON.parse(line.replace(/^data: /, '')) as Rpc, calls, ms: Date.now() - t0, b519Logs: logs.filter((l) => l.startsWith('[B519]')) };
   } finally {
     globalThis.fetch = origFetch; console.info = origInfo;
     __b519SetRefetchWaitMsForTest(3000);
@@ -156,53 +157,120 @@ test('[i] worst case adds exactly 2 waits (3 s each ⇒ 6 s) — checked with a 
 // ── optimize_cart ────────────────────────────────────────────────────────────
 const OPT = tool('optimize_cart', { eans: [EAN], country: 'DE' });
 const RECOVERY = { success: false, error: 'stale_prices', eans_to_refresh: [EAN], message: 'stale' };
-const OK = {
+const RESULT = {
+  orders: [{ shopName: 'BOC24', subtotal: 50, shippingCost: 4.95, total: 54.95, products: [{ productName: 'Testprodukt', price: 50, ean: EAN, url: null }] }],
+  totalCost: 54.95, totalShipping: 4.95, savings: null, savingsPercent: null, baselineType: 'cheapest_per_item', singleShopOption: null,
+};
+const OK = { success: true, result: RESULT };
+const EXCL = { count: 1, shops: ['bike-components'] };
+const OK_EXCL = { ...OK, excluded_stale_offers: EXCL };
+const OK_FRESH = {
   success: true, result: {
+    ...RESULT,
     orders: [{ shopName: 'bike-components', subtotal: 42.99, shippingCost: 4.99, total: 47.98, products: [{ productName: 'Testprodukt', price: 42.99, ean: EAN, url: null }] }],
-    totalCost: 47.98, totalShipping: 4.99, savings: null, savingsPercent: null, baselineType: 'cheapest_per_item', singleShopOption: null,
+    totalCost: 47.98, totalShipping: 4.99,
   },
 };
 
 for (const [label, opts] of PROFILES) {
-  test(`[j] ${label} optimize_cart: recovery → success on 1st extra call returns the normal result`, async () => {
-    const { out, calls } = await on([RECOVERY, OK], OPT, opts);
-    assert.equal(calls, 2);
-    assert.ok(!out.result!.isError);
-    assert.ok(out.result!.structuredContent!.optimization);
-    assert.match(out.result!.content[0]!.text, /\*\*Total cost: 47,98\s€\*\*/);
+  test(`[j] ${label} optimize_cart: 'stale_prices' recovery ⇒ exactly ONE call, existing message unchanged, no log`, async () => {
+    const r = await on([RECOVERY, OK], OPT, opts);
+    assert.equal(r.calls, 1);
+    assert.equal(r.out.result!.isError, true);
+    assert.equal(r.b519Logs.length, 0);
+    const off = await run(undefined, 20, [RECOVERY], OPT, opts);
+    assert.equal(r.out.result!.content[0]!.text, off.out.result!.content[0]!.text, 'recovery text byte-identical to flag OFF');
   });
 
-  test(`[k] ${label} optimize_cart: recovery → recovery → success on 2nd extra call`, async () => {
-    const { out, calls } = await on([RECOVERY, RECOVERY, OK], OPT, opts);
-    assert.equal(calls, 3);
-    assert.ok(!out.result!.isError);
+  test(`[k] ${label} optimize_cart: success + excluded → 1st retry has no excluded ⇒ final result is the retry`, async () => {
+    const r = await on([OK_EXCL, OK_FRESH], OPT, opts);
+    assert.equal(r.calls, 2);
+    assert.ok(!r.out.result!.isError);
+    assert.ok(!('excluded_stale_offers' in r.out.result!.structuredContent!));
+    assert.match(r.out.result!.content[0]!.text, /\*\*Total cost: 47,98\s€\*\*/);
+    assert.ok(!r.out.result!.content[0]!.text.includes('Nicht berücksichtigt'));
   });
 
-  test(`[l] ${label} optimize_cart: recovery ×3 ⇒ the existing recovery message, unchanged, after max 2 extra calls`, async () => {
-    const { out, calls } = await on([RECOVERY], OPT, opts);
-    assert.equal(calls, 3);
-    assert.equal(out.result!.isError, true);
-    const flagOff = await run(undefined, 20, [RECOVERY], OPT, opts);
-    assert.equal(flagOff.calls, 1);
-    assert.equal(out.result!.content[0]!.text, flagOff.out.result!.content[0]!.text, 'recovery text byte-identical to flag OFF');
+  test(`[l] ${label} optimize_cart: success + excluded → still excluded after 2 retries ⇒ max 3 calls, part-1 field + line kept`, async () => {
+    const r = await on([OK_EXCL], OPT, opts);
+    assert.equal(r.calls, 3);
+    assert.deepEqual(r.out.result!.structuredContent!.excluded_stale_offers, EXCL);
+    assert.equal(r.out.result!.content[0]!.text.split('\n').filter((l) => l.startsWith('Nicht berücksichtigt (Preis älter als 24 Stunden')).length, 1);
   });
 
-  test(`[m] ${label} optimize_cart: success on first call ⇒ no re-call; part-1 excluded_stale_offers still passed through`, async () => {
-    const { out, calls } = await on([{ ...OK, excluded_stale_offers: { count: 1, shops: ['bike-components'] } }], OPT, opts);
-    assert.equal(calls, 1);
-    assert.deepEqual(out.result!.structuredContent!.excluded_stale_offers, { count: 1, shops: ['bike-components'] });
+  test(`[m] ${label} optimize_cart: excluded → excluded → clean on 2nd retry`, async () => {
+    const r = await on([OK_EXCL, OK_EXCL, OK_FRESH], OPT, opts);
+    assert.equal(r.calls, 3);
+    assert.ok(!('excluded_stale_offers' in r.out.result!.structuredContent!));
   });
 
-  test(`[n] ${label} optimize_cart: other errors (missing_prices) are NOT retried`, async () => {
-    const { calls } = await on([{ success: false, error: 'missing_prices', missing_eans: [EAN] }], OPT, opts);
-    assert.equal(calls, 1);
+  test(`[n] ${label} optimize_cart: retry returns 'stale_prices' ⇒ previous successful result kept`, async () => {
+    const r = await on([OK_EXCL, RECOVERY], OPT, opts);
+    assert.equal(r.calls, 2, 'a non-successful retry stops the loop');
+    assert.ok(!r.out.result!.isError);
+    assert.deepEqual(r.out.result!.structuredContent!.excluded_stale_offers, EXCL);
+    assert.match(r.b519Logs[0]!, /result=kept_previous$/);
   });
 
-  test(`[o] ${label} optimize_cart flag OFF: recovery case is one call, as before`, async () => {
-    const { calls } = await run(undefined, 20, [RECOVERY, OK], OPT, opts);
-    assert.equal(calls, 1);
+  test(`[n2] ${label} optimize_cart: retry throws ⇒ previous successful result kept`, async () => {
+    const r = await on([OK_EXCL, new Error('boom')], OPT, opts);
+    assert.equal(r.calls, 2);
+    assert.ok(!r.out.result!.isError);
+    assert.deepEqual(r.out.result!.structuredContent!.excluded_stale_offers, EXCL);
+  });
+
+  test(`[o] ${label} optimize_cart: success without excluded_stale_offers ⇒ no retry, no log`, async () => {
+    const r = await on([OK, OK_FRESH], OPT, opts);
+    assert.equal(r.calls, 1);
+    assert.equal(r.b519Logs.length, 0);
+  });
+
+  test(`[p] ${label} optimize_cart: other errors (missing_prices) are NOT retried`, async () => {
+    const r = await on([{ success: false, error: 'missing_prices', missing_eans: [EAN] }], OPT, opts);
+    assert.equal(r.calls, 1);
+  });
+
+  test(`[q] ${label} optimize_cart flag OFF: success + excluded is one call, nothing added`, async () => {
+    const r = await run(undefined, 20, [OK_EXCL, OK_FRESH], OPT, opts);
+    assert.equal(r.calls, 1);
+    assert.ok(!('excluded_stale_offers' in r.out.result!.structuredContent!));
+    assert.equal(r.b519Logs.length, 0);
   });
 }
+
+// ── timing log ───────────────────────────────────────────────────────────────
+const LOG_RE = (tool: string, endpoint: string, ean: string, fetches: number, waits: string, stale: string, result: string) =>
+  new RegExp(`^\\[B519\\] tool=${tool} endpoint=${endpoint} ean=${ean} fetches=${fetches} ms=\\d+(,\\d+){${fetches - 1}} waits=${waits} stale_after=${stale} result=${result}$`);
+
+test('[r] log: get_best_price stale → fresh, /mcp', async () => {
+  const r = await on([products(42.99, STALE_ISO), products(42.99, FRESH_ISO)], GBP);
+  assert.equal(r.b519Logs.length, 1);
+  assert.match(r.b519Logs[0]!, LOG_RE('get_best_price', 'mcp', EAN, 2, '20', 'true,false', 'fresh'));
+});
+
+test('[s] log: find_alternatives stale ×3 on /mcp/openai ⇒ refresh_pending, 3 fetches, 2 waits', async () => {
+  const r = await on([products(42.99, STALE_ISO)], ALT, { feedOnly: true, renderProfile: 'openai' });
+  assert.equal(r.b519Logs.length, 1);
+  assert.match(r.b519Logs[0]!, LOG_RE('find_alternatives_for_product', 'openai', EAN, 3, '20,20', 'true,true,true', 'refresh_pending'));
+});
+
+test('[t] log: optimize_cart excluded remains ⇒ ean list + excluded_remaining', async () => {
+  const body = tool('optimize_cart', { eans: [EAN, '4019238055610'], country: 'DE' });
+  const r = await on([OK_EXCL], body);
+  assert.equal(r.b519Logs.length, 1);
+  assert.match(r.b519Logs[0]!, LOG_RE('optimize_cart', 'mcp', `${EAN},4019238055610`, 3, '20,20', 'true,true,true', 'excluded_remaining'));
+});
+
+test('[u] log: re-fetch error ⇒ result=kept_previous', async () => {
+  const r = await on([products(42.99, STALE_ISO), new Error('x')], GBP);
+  assert.equal(r.b519Logs.length, 1);
+  assert.match(r.b519Logs[0]!, LOG_RE('get_best_price', 'mcp', EAN, 2, '20', 'true,true', 'kept_previous'));
+});
+
+test('[v] log: absent when no extra fetch happens (no stale entry) and when the flag is OFF', async () => {
+  assert.equal((await on([products(42.99, FRESH_ISO)], GBP)).b519Logs.length, 0);
+  assert.equal((await run(undefined, 20, [products(42.99, STALE_ISO)], GBP, { feedOnly: false })).b519Logs.length, 0);
+});
 
 // ── tools/list ───────────────────────────────────────────────────────────────
 test('[p] tools/list flag ON declares refresh_pending / retry_after_seconds as optional on both endpoints', async () => {

@@ -429,28 +429,53 @@ export function b519ExcludedLine(shops: string[]): string {
 
 // ── B-519 part 2: wait-and-refetch for a stale bike-components price ─────────────────────
 // The main app refreshes a stale row in the background on ANY lookup; the fresh price is in
-// the database ~1–2 s later. So with the flag ON the stub waits 3 s and asks again (at most
-// 2 extra fetches ⇒ at most 6 s of added waiting) and builds the answer from the LAST fetch.
-// Re-fetches use the normal apiJson timeout (FETCH_TIMEOUT_MS). A failed re-fetch keeps the
-// previous result. Flag OFF ⇒ exactly one fetch, as before.
+// the database ~1–2 s later. With the flag ON the stub waits 3 s and asks again (at most 2 extra
+// fetches ⇒ at most 6 s of added waiting) and builds the answer from the LAST acceptable fetch.
+//   - get_best_price / find_alternatives: refresh while any entry is stale.
+//   - optimize_cart: refresh ONLY when the call succeeded but excluded stale offers. The
+//     'stale_prices' recovery case (scraping-shop gate, ~20 s) is NOT retried — single call, as before.
+// Re-fetches use the normal apiJson timeout (FETCH_TIMEOUT_MS). A failed or unacceptable re-fetch
+// keeps the previous result. Flag OFF ⇒ exactly one fetch, as before, and no log line.
 const B519_REFETCH_MAX_EXTRA = 2;
 let b519RefetchWaitMs = 3000;
 /** Test hook only: shortens the 3 s wait so unit tests do not sleep. */
 export function __b519SetRefetchWaitMsForTest(ms: number): void { b519RefetchWaitMs = ms; }
 
-async function b519FetchWithRefresh<T>(fetchOnce: () => Promise<T>, needsRefresh: (d: T) => boolean, what: string): Promise<T> {
-  let last = await fetchOnce();
-  if (!b519Enabled()) return last;
-  for (let i = 0; i < B519_REFETCH_MAX_EXTRA && needsRefresh(last); i++) {
+async function b519FetchWithRefresh<T>(o: {
+  tool: string;
+  profile: RenderProfile;
+  ean: string;
+  fetchOnce: () => Promise<T>;
+  needsRefresh: (d: T) => boolean;       // stale entry / excluded offers present
+  acceptable?: (d: T) => boolean;        // a re-fetch that is not acceptable never replaces the previous result
+  pendingLabel: 'refresh_pending' | 'excluded_remaining';
+}): Promise<T> {
+  const t0 = Date.now();
+  let last: T = (await o.fetchOnce()) as T;
+  if (!b519Enabled() || !o.needsRefresh(last)) return last;
+  const fetchMs = [Date.now() - t0];
+  const waits: number[] = [];
+  const staleAfter = [true];
+  let keptPrevious = false;
+  for (let i = 0; i < B519_REFETCH_MAX_EXTRA && o.needsRefresh(last); i++) {
+    waits.push(b519RefetchWaitMs);
     await new Promise<void>(resolve => setTimeout(resolve, b519RefetchWaitMs));
+    const t1 = Date.now();
+    let next: T;
     try {
-      last = await fetchOnce();
-      console.info(`[B519] ${what}: re-fetch ${i + 1}/${B519_REFETCH_MAX_EXTRA} done, stale-after=${needsRefresh(last)}`);
-    } catch (err) {
-      console.info(`[B519] ${what}: re-fetch ${i + 1} failed (${err instanceof Error ? err.message : String(err)}) — keeping previous result`);
+      next = (await o.fetchOnce()) as T;
+    } catch {
+      fetchMs.push(Date.now() - t1); staleAfter.push(true); keptPrevious = true;
       break;
     }
+    fetchMs.push(Date.now() - t1);
+    if (o.acceptable && !o.acceptable(next)) { staleAfter.push(true); keptPrevious = true; break; }
+    last = next;
+    staleAfter.push(o.needsRefresh(last));
   }
+  const result = keptPrevious ? 'kept_previous' : o.needsRefresh(last) ? o.pendingLabel : 'fresh';
+  // console.info (not console.log): console.log is filtered from Vercel production logs.
+  console.info(`[B519] tool=${o.tool} endpoint=${o.profile === 'openai' ? 'openai' : 'mcp'} ean=${o.ean} fetches=${fetchMs.length} ms=${fetchMs.join(',')} waits=${waits.join(',')} stale_after=${staleAfter.join(',')} result=${result}`);
   return last;
 }
 
@@ -873,11 +898,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       try {
         // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
         const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
-        const data = await b519FetchWithRefresh(
-          gbpFetch,
-          d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
-          `get_best_price ${ean}`,
-        );
+        const data = await b519FetchWithRefresh({
+          tool: "get_best_price", profile: renderProfile, ean,
+          fetchOnce: gbpFetch,
+          needsRefresh: d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
+          pendingLabel: 'refresh_pending',
+        });
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter; cheapest
         // is recomputed from the filtered (still cheapest-first) list.
@@ -1089,20 +1115,23 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       trackMcpEvent("MCP Optimize Cart", { product_count: eans.length, country });
       console.info(`[MCP] optimize_cart: ${eans.length} EAN(s) country=${country}`);
       try {
-        // B-519 part 2: the recovery case is the main app's 422 `error: 'stale_prices'` body (the same
-        // condition the recovery message below keys on). Flag ON ⇒ wait 3 s and ask again, at most 2 extra
-        // calls; a still-recovering answer falls through to the unchanged message. Flag OFF ⇒ one call.
-        const data = await b519FetchWithRefresh(
-          () => apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
+        // B-519 part 2: the 'stale_prices' recovery case (scraping-shop freshness gate) is NOT retried —
+        // one call, existing message unchanged. Only a SUCCESSFUL result that excluded stale offers
+        // (excluded_stale_offers.count > 0, part 1) is re-requested: wait 3 s, ask again, at most 2 extra
+        // calls, keep the last successful result. Flag OFF ⇒ one call, as before.
+        const data = await b519FetchWithRefresh({
+          tool: "optimize_cart", profile: renderProfile, ean: eans.join(","),
+          fetchOnce: () => apiJson<OptimizeFromEansResult>("/api/cart/optimize-from-eans", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             // Feed-only mode: the API skips scraping shops AND the stale-prices gate,
             // so optimization runs over feed shops only and is never blocked by them.
             body: JSON.stringify(feedOnly ? { eans, country, feedOnly: true } : { eans, country }),
           }),
-          d => !d.success && d.error === 'stale_prices',
-          `optimize_cart ${eans.length} EAN(s)`,
-        );
+          needsRefresh: d => d.success === true && !!d.result && (d.excluded_stale_offers?.count ?? 0) > 0,
+          acceptable: d => d.success === true && !!d.result,
+          pendingLabel: 'excluded_remaining',
+        });
 
         if (!data.success || !data.result) {
           if (data.error === 'missing_prices' && data.missing_eans?.length) {
@@ -1572,11 +1601,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       try {
         // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
         const altFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
-        const data = await b519FetchWithRefresh(
-          altFetch,
-          d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
-          `find_alternatives ${ean}`,
-        );
+        const data = await b519FetchWithRefresh({
+          tool: "find_alternatives_for_product", profile: renderProfile, ean,
+          fetchOnce: altFetch,
+          needsRefresh: d => b519AnyStale(feedOnly && d.results ? d.results.filter(r => FEED_SHOP_IDS.has(r.shop_id)) : d.results),
+          pendingLabel: 'refresh_pending',
+        });
 
         // Feed-only mode: drop scraping-shop rows. Loss-less list filter.
         const results = feedOnly && data.results
