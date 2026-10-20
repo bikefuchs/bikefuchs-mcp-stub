@@ -239,7 +239,7 @@ test('[m] multiple shops are joined with ", "', () => {
 // ── tools/list ───────────────────────────────────────────────────────────────
 test('[n] tools/list: flag ON adds only the optional B-519 schema fields', async () => {
   const list = async (opts: { feedOnly: boolean; renderProfile?: 'claude' | 'openai' }) =>
-    (await rpc({ method: 'tools/list', params: {} }, {}, opts)) as { result: { tools: Array<{ name: string; outputSchema: any }> } };
+    (await rpc({ method: 'tools/list', params: {} }, {}, opts)) as unknown as { result: { tools: Array<{ name: string; outputSchema: any }> } };
   for (const opts of [{ feedOnly: false }, { feedOnly: true, renderProfile: 'openai' as const }]) {
     const off = await withFlag(undefined, () => list(opts));
     const on = await withFlag('true', () => list(opts));
