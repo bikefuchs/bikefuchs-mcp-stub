@@ -693,7 +693,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       title: "Search Bike Products",
       description: "Search for bicycle parts, components, accessories, and cycling clothing by name, brand, or model number. Returns matching products sorted cheapest-first, each with its price, stock status, EAN barcode, and a direct purchase link. Supports DE and AT pricing. If you already have a product's EAN, use get_best_price instead.",
       inputSchema: {
-        q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product name, description, and specifications (e.g. 'shimano xt bremsbeläge')"),
+        q: z.string().min(2).describe("Search keyword, min 2 chars. Multi-word queries use AND logic across product names (e.g. 'shimano xt bremsbeläge')"),
         country: z.enum(["DE", "AT"]).optional().default("DE").describe("Country for pricing (DE or AT, default DE)"),
         in_stock: z.boolean().optional().default(true).describe("Only return in-stock products (default true)"),
         max_results: z.number().int().min(1).max(20).optional().default(10).describe("Max results (1–20, default 10)"),
