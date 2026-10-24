@@ -238,10 +238,9 @@ for (const ch of CHANNELS) {
 //
 // B-499: /mcp's fingerprint is INTENTIONALLY updated here — resolve_product's outputSchema
 // gains options[].ean.nullable(), options[].product_url and top-level min_price for the
-// claude profile only (see mcpServer.ts). /mcp/openai's fingerprint is DELIBERATELY left
-// untouched: it is the automated proof that the openai profile's outputSchema is byte-
-// identical to before this change (verified locally: recomputing it from the current code
-// still yields this exact sha256).
+// claude profile only (see mcpServer.ts). For B-499 the /mcp/openai fingerprint was left
+// untouched as the automated proof that the openai profile's outputSchema was byte-identical
+// to before that change; updated 2026-10-23 for the q description fix (B-522 follow-up).
 const TOOLS_LIST_ID1: Case = { body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } };
 // B-522 follow-up 2026-10-23: q description no longer claims description/spec search
 const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
