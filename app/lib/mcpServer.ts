@@ -657,7 +657,7 @@ function toolAnnotations(title: string, profile: RenderProfile) {
 
 // B-477: single source for the initialize result. createServer() and the
 // early-exit answer (b477EarlyExit) both read these, so the two can never drift.
-export const SERVER_INFO = { name: "bikefuchs", version: "2.5.0" };
+export const SERVER_INFO = { name: "bikefuchs", version: "2.5.1" };
 
 export function buildServerInstructions(): string {
   return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across German/Austrian online bike shops. It covers over 100,000 products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.

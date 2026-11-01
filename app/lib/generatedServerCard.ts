@@ -32,7 +32,7 @@ export async function buildGeneratedServerCard() {
     protocolVersion: init.protocolVersion,
     serverInfo: { ...SERVER_INFO, title: "Bikefuchs — Fahrradteile Preisvergleich" },
     description:
-      "Compare prices for bicycle parts, components, accessories, and cycling clothing across German and Austrian bike shops. Optimize multi-product shopping carts to minimize total cost including shipping. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops.",
+      "Compare prices for bicycle parts across German and Austrian bike shops: brake pads (Bremsbeläge), brake rotors (Bremsscheiben), chains (Ketten), cassettes (Kassetten), chainrings, derailleurs, tyres (Reifen), inner tubes (Schläuche), pedals (Pedale), grips (Griffe), handlebar tape, chain lube, plus components, accessories, and cycling clothing. Optimize multi-product shopping carts: finds the cheapest shop combination for several parts including shipping costs and free-shipping thresholds. Covers over 100,000 products. Supports DE and AT markets. Call get_shop_info for the current list of supported shops.",
     iconUrl: "https://bikefuchs.com/favicon.ico",
     documentationUrl: "https://bikefuchs.com/mcp",
     transport: { type: "streamable-http", endpoint: "https://mcp.bikefuchs.com/mcp" },
