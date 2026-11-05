@@ -382,6 +382,120 @@ function buildGoUrl(shopId: string | null, ean: string | null, toolName: string,
   return readyLink && isTrustedGoLink(readyLink) ? readyLink : "";
 }
 
+// ── B-529: shop states (in stock / out of stock / not found) ─────────────────────────────────
+// The main app's GET /api/products/{ean} adds `shop_states`, `not_found_shops`, `pending_shops`.
+// Absent (older API) ⇒ b529Prepare returns null and every tool renders exactly as before.
+// "pending" shops are NOT listed in any state: the tool tells the model to call again (D3).
+interface B529StateEntry {
+  shop: string;
+  shop_id: string;
+  state: 'in_stock' | 'out_of_stock' | 'not_found';
+  price: number | null;
+  ean?: string | null;
+  product_url?: string | null;
+  purchase_url?: string | null;
+  variant_uncertain?: boolean;
+}
+interface B529Api {
+  shop_states?: B529StateEntry[];
+  not_found_shops?: string[];
+  pending_shops?: string[];
+}
+interface B529Prep {
+  states: B529StateEntry[];
+  notFound: string[];
+  pending: string[];
+}
+const B529_RETRY_SECONDS = 25;
+const B529_NOT_FOUND_PREFIX = 'Nicht gefunden bei: ';
+const B529_OOS_HEADER = '**Nicht lieferbar:**';
+const B529_OOS_LABEL = 'nicht lieferbar';
+
+function b529RefreshInstruction(tool: string): string {
+  return `Some shops have not answered yet, so this list is incomplete. You MUST call ${tool} again with the same EAN in about ${B529_RETRY_SECONDS} seconds BEFORE you answer the user, and base your answer on that second result. Do NOT tell the user that the missing shops do not carry this product. Do this refresh only ONCE — if shops are still pending after it, present the best result you have and say that some shops could not be checked right now.`;
+}
+
+function b529Prepare(data: B529Api, feedOnly: boolean): B529Prep | null {
+  if (!Array.isArray(data.shop_states)) return null;
+  const isHiddenName = (s: string) => {
+    const l = s.trim().toLowerCase();
+    return SCRAPING_SHOP_IDS.has(l) || SCRAPING_SHOP_INPUTS.has(l) || SCRAPING_DISPLAY_NAMES.has(s.trim());
+  };
+  const states = feedOnly ? data.shop_states.filter(s => FEED_SHOP_IDS.has(s.shop_id)) : data.shop_states;
+  const notFound = (data.not_found_shops ?? []).filter(n => !feedOnly || !isHiddenName(n));
+  const pending = (data.pending_shops ?? []).filter(n => !feedOnly || !isHiddenName(n));
+  return { states, notFound, pending };
+}
+
+/** Partition into the in-stock rows (from results, as today) and the out-of-stock rows. */
+function b529Partition(prep: B529Prep, results: EanResult[]): { inStock: EanResult[]; oos: Array<{ row: EanResult | null; entry: B529StateEntry }> } {
+  const stateOf = new Map(prep.states.map(s => [s.shop_id, s] as const));
+  const inStock = results.filter(r => stateOf.get(r.shop_id)?.state !== 'out_of_stock');
+  const oos = prep.states
+    .filter(s => s.state === 'out_of_stock')
+    .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
+    .map(entry => ({ entry, row: results.find(r => r.shop_id === entry.shop_id) ?? null }));
+  return { inStock, oos };
+}
+
+function b529OosLines(profile: RenderProfile, prep: B529Prep, results: EanResult[], ean: string, loc: string, productName: string): string[] {
+  return b529Partition(prep, results).oos.map(({ entry, row }) => {
+    const price = row?.price ?? entry.price;
+    const link = buildGoUrl(entry.shop_id, ean, loc);
+    const priceTxt = price != null ? ` — **${formatEuro(price)}**` : '';
+    const tail = `${priceTxt} ${B529_OOS_LABEL}${row ? variantSegment(row) + priceAgeNote(row.price_as_of) : ''}`;
+    return productEntry(profile, '- ', `${productName} — ${entry.shop}`, link, tail);
+  });
+}
+
+/** Content block after the in-stock lines: the greyed-out "nicht lieferbar" block + the single not-found line. */
+function b529Extra(prep: B529Prep, results: EanResult[], profile: RenderProfile, ean: string, loc: string, productName: string): string {
+  const oos = b529OosLines(profile, prep, results, ean, loc, productName);
+  const nf = b529NotFoundLine(prep);
+  return (oos.length > 0 ? `\n\n${B529_OOS_HEADER}\n${oos.join('\n')}` : '') + (nf ? `\n\n${nf}` : '');
+}
+
+function b529NotFoundLine(prep: B529Prep): string {
+  return prep.notFound.length > 0 ? `${B529_NOT_FOUND_PREFIX}${prep.notFound.join(', ')}` : '';
+}
+
+/** Declared-optional output fields (both tools, both profiles). */
+function b529OutputSchema() {
+  return {
+    shop_states: z.array(z.object({
+      shop: z.string(),
+      shop_id: z.string(),
+      state: z.string(),
+      price: z.number().nullable(),
+      affiliate_url: z.string().optional(),
+    })).optional(),
+    not_found_shops: z.array(z.string()).optional(),
+    pending_shops: z.array(z.string()).optional(),
+    refresh_required: z.object({
+      retry_after_seconds: z.number(),
+      instruction: z.string(),
+    }).optional(),
+  };
+}
+
+function b529Structured(prep: B529Prep, results: EanResult[], ean: string, loc: string, tool: string): Record<string, unknown> {
+  const priceOf = (s: B529StateEntry) => results.find(r => r.shop_id === s.shop_id)?.price ?? s.price;
+  return {
+    shop_states: prep.states.map(s => ({
+      shop: s.shop,
+      shop_id: s.shop_id,
+      state: s.state,
+      price: s.state === 'not_found' ? null : (priceOf(s) ?? null),
+      ...(s.state === 'not_found' ? {} : { affiliate_url: buildGoUrl(s.shop_id, ean, loc) }),
+    })),
+    not_found_shops: prep.notFound,
+    pending_shops: prep.pending,
+    ...(prep.pending.length > 0
+      ? { refresh_required: { retry_after_seconds: B529_RETRY_SECONDS, instruction: b529RefreshInstruction(tool) } }
+      : {}),
+  };
+}
+
 // B-519: the single definition of "stale" — `price_as_of` present, parsable and older than
 // 24 h. priceAgeNote (B-370) and the B-519 structured fields / winner gate all call this,
 // so the text note and the structured flag can never disagree.
@@ -870,6 +984,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         })),
         cheapest_shop: z.string(),
         cheapest_price: z.number(),
+        ...b529OutputSchema(),
         ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional(), refresh_pending: z.boolean().optional(), retry_after_seconds: z.number().optional() } : {}),
         next_step: z.object({
           tool: z.string(),
@@ -897,7 +1012,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
         // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
-        const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[]; shop_states?: B529StateEntry[]; not_found_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
         const data = await b519FetchWithRefresh({
           tool: "get_best_price", profile: renderProfile, ean,
           fetchOnce: gbpFetch,
@@ -914,12 +1029,17 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // B-196: 2-call warm directive. Claude profile only (feedOnly===false) — the
         // openai/feed-only profile has no scraping shops, so scraping_pending is moot
         // and the directive must never appear there.
-        const warmingDirective = !feedOnly && data.scraping_pending ? WARMING_REFRESH_DIRECTIVE : '';
+        const b529 = b529Prepare(data, feedOnly);
+        const warmingDirective = b529
+          ? (b529.pending.length > 0 ? `\n\n⏳ IMPORTANT — ${b529RefreshInstruction('get_best_price')}` : '')
+          : (!feedOnly && data.scraping_pending ? WARMING_REFRESH_DIRECTIVE : '');
 
         if (results.length === 0) {
           return {
             ...mcpText(
-              `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${warmingDirective}${footer(renderProfile)}`
+              b529
+                ? `${b529.pending.length > 0 ? `No results available yet for EAN ${ean} in ${country}.` : `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.`}${b529NotFoundLine(b529) ? `\n\n${b529NotFoundLine(b529)}` : ''}${warmingDirective}${footer(renderProfile)}`
+                : `No results found for EAN ${ean} in ${country}. The product may not be carried by any supported shop.${warmingDirective}${footer(renderProfile)}`
             ),
             structuredContent: {
               ean,
@@ -927,6 +1047,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               prices: [],
               cheapest_shop: "",
               cheapest_price: 0,
+              ...(b529 ? b529Structured(b529, results, ean, 'get_best_price', 'get_best_price') : {}),
               ...(renderProfile === 'openai'
                 ? { disclosure: footer(renderProfile), tell_user: PILOT_TELL_USER_BEST_PRICE }
                 : { disclosure: footer(renderProfile) }),
@@ -945,7 +1066,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const { winner: cheapestInStock, allStale: cheapestAllStale } = b519SelectWinner(results);
         const refreshPending = b519RefreshPending(results, "get_best_price");
         const productName = cheapest.product_name ?? "Product";
-        const lines = results.map((r, i) => {
+        const gbpRows = b529 ? b529Partition(b529, results).inStock : results;
+        const lines = gbpRows.map((r, i) => {
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
           const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
@@ -1008,7 +1130,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         return {
           ...mcpText(
-            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${refreshPending.hint}${footer(renderProfile)}`
+            `## Best Price: ${productName}\n\nEAN: ${ean} · ${country}\n\n${lines.join("\n\n")}${b529 ? b529Extra(b529, results, renderProfile, ean, 'get_best_price', productName) : ''}\n\n${bestPriceLine}${referenceLine}${warmingDirective}\n\n${linksDirective(renderProfile)}\n\n${VARIANT_LABEL_DIRECTIVE}${DISCLOSURE_DIRECTIVE}\n\n## Cart Optimization\nTo find the cheapest combination for multiple products, call:\n\`optimize_cart(eans: ["${ean}", "...other EANs..."])\`${refreshPending.hint}${footer(renderProfile)}`
           ),
           structuredContent: {
             ean,
@@ -1026,6 +1148,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             })),
             cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
             cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
+            ...(b529 ? b529Structured(b529, results, ean, 'get_best_price', 'get_best_price') : {}),
             ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
             ...refreshPending.fields,
             next_step: { tool: "optimize_cart", hint: "Find cheapest total including shipping for multiple products", eans: [ean] },
@@ -1583,6 +1706,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           affiliate_url: z.string().describe("Direct link to buy at this shop."),
           ...(b519Enabled() ? { price_as_of: z.string().optional(), price_stale: z.boolean().optional() } : {}),
         })),
+        ...b529OutputSchema(),
         ...(b519Enabled() ? { cheapest_price_stale: z.boolean().optional(), refresh_pending: z.boolean().optional(), retry_after_seconds: z.number().optional() } : {}),
         // B-162 rollout: openai profile only. Empty spread on claude → identical.
         ...(renderProfile === 'openai'
@@ -1600,7 +1724,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       console.info(`[MCP] find_alternatives_for_product: ean=${ean} country=${country}`);
       try {
         // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
-        const altFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        const altFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; shop_states?: B529StateEntry[]; not_found_shops?: string[]; pending_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
         const data = await b519FetchWithRefresh({
           tool: "find_alternatives_for_product", profile: renderProfile, ean,
           fetchOnce: altFetch,
@@ -1613,15 +1737,21 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? data.results.filter(r => FEED_SHOP_IDS.has(r.shop_id))
           : (data.results ?? []);
 
+        const b529 = b529Prepare(data, feedOnly);
+        const altRefresh = b529 && b529.pending.length > 0 ? `\n\n⏳ IMPORTANT — ${b529RefreshInstruction('find_alternatives_for_product')}` : '';
+
         if (results.length === 0) {
           return {
             ...mcpText(
-              `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${footer(renderProfile)}`
+              b529
+                ? `${b529.pending.length > 0 ? `No shops available yet for EAN ${ean} in ${country}.` : `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.`}${b529NotFoundLine(b529) ? `\n\n${b529NotFoundLine(b529)}` : ''}${altRefresh}${footer(renderProfile)}`
+                : `No shops found carrying EAN ${ean} in ${country}. The product may not be available in any supported shop.${footer(renderProfile)}`
             ),
             structuredContent: {
               ean,
               product_name: "Unknown",
               alternatives: [],
+              ...(b529 ? b529Structured(b529, results, ean, 'find_alternatives', 'find_alternatives_for_product') : {}),
               ...(renderProfile === 'openai'
                 ? { disclosure: footer(renderProfile), tell_user: TELL_USER_ALTERNATIVES }
                 : { disclosure: footer(renderProfile) }),
@@ -1639,8 +1769,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const refreshPending = b519RefreshPending(results, "find_alternatives_for_product");
         let md = `## Where to Buy: ${productName}\n\nEAN: ${ean} · ${country} · ${results.length} shop(s) carry this product\n\n`;
 
-        for (let i = 0; i < results.length; i++) {
-          const r = results[i];
+        const altRows = b529 ? b529Partition(b529, results).inStock : results;
+        for (let i = 0; i < altRows.length; i++) {
+          const r = altRows[i]!;
           // B-309: an uncertain row asserts neither in-stock nor out-of-stock.
           const stockIcon = b309StockLabel(r);
           const trophy = cheapestInStock && r === cheapestInStock ? " 🏆" : "";
@@ -1656,6 +1787,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
           ) + `\n`;
         }
+
+        if (b529) md += b529Extra(b529, results, renderProfile, ean, 'find_alternatives', productName) + `\n`;
 
         // B-309: no winner but ≥1 uncertain row ⇒ do NOT claim out-of-stock everywhere.
         // Flag OFF ⇒ hasUncertain false ⇒ today's out-of-stock line byte-for-byte.
@@ -1676,7 +1809,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         return {
-          ...mcpText(md + refreshPending.hint + footer(renderProfile)),
+          ...mcpText(md + altRefresh + refreshPending.hint + footer(renderProfile)),
           structuredContent: {
             ean,
             product_name: productName,
@@ -1690,6 +1823,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               affiliate_url: buildGoUrl(r.shop_id, ean, 'find_alternatives'),
               ...b519AgeFields(r),
             })),
+            ...(b529 ? b529Structured(b529, results, ean, 'find_alternatives', 'find_alternatives_for_product') : {}),
             ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
             ...refreshPending.fields,
             ...(renderProfile === 'openai'

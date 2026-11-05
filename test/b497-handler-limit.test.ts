@@ -169,8 +169,8 @@ const TOOLS_LIST_ID1 = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
 // deliberately left unchanged — see the matching comment in b477-parity.test.ts.
 // B-522 follow-up 2026-10-23: q description no longer claims description/spec search
 const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
-  '/mcp': { bytes: 14006, sha256: '5992bb9913f19b95fa11bed2b11dc4c8743c7fb0a43d850258ac1b8b38cdb9f8' },
-  '/mcp/openai': { bytes: 15833, sha256: '43b5cd821f6c557286245dba566a7409e0efb88f3995ccf664847251114c1dc8' },
+  '/mcp': { bytes: 15278, sha256: 'f14d81edf8a745d70a6e8144780e8b282302c6b86fb74f5eb3fbf9d25f2bc5c9' },
+  '/mcp/openai': { bytes: 17105, sha256: '367aa2bd6d9c72c764c7ea4e71dc4fad05c32d5e5ca7d61d8328e18800a16ca7' },
 };
 
 // ── [a] byte parity either way, AND the gate runs/doesn't run as expected ─────────
