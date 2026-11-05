@@ -61,7 +61,7 @@ for (const [label, opts] of PROFILES) {
       assert.ok(iNicht > 0 && iNf > iNicht, 'in-stock lines, then out-of-stock block, then not-found line');
       assert.ok(text.slice(0, iNicht).includes('BOC24') && text.slice(0, iNicht).includes('🏆'));
       const oosBlock = text.slice(iNicht, iNf);
-      assert.ok(oosBlock.includes('Rose Bikes') && oosBlock.includes('nicht lieferbar') && oosBlock.includes('/go/rose-bikes/'));
+      assert.ok(oosBlock.includes('ROSE Bikes') && oosBlock.includes('nicht lieferbar') && oosBlock.includes('/go/rose-bikes/'));
       assert.ok(!oosBlock.includes('🏆'));
       assert.ok(Array.isArray(sc.shop_states) && Array.isArray(sc.not_found_shops) && Array.isArray(sc.pending_shops));
       assert.ok(!('refresh_required' in sc));

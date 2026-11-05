@@ -16,6 +16,7 @@ import { z } from "zod";
 import { trackMcpEvent } from "./tracking";
 import { recordCoverage, extractEansFromMcp, RL_SOURCE_HEADER } from "./rateLimit";
 import { handlerLimitGate } from "./handlerLimit";
+import { displayShopName, displayShopInMessage } from './shopDisplayNames';
 
 // B-417: fall back to the apex — the www subdomain 307-redirects to it (Vercel
 // domain config, since May 2026), so a stale fallback here costs the same
@@ -444,7 +445,7 @@ function b529OosLines(profile: RenderProfile, prep: B529Prep, results: EanResult
     const link = buildGoUrl(entry.shop_id, ean, loc);
     const priceTxt = price != null ? ` — **${formatEuro(price)}**` : '';
     const tail = `${priceTxt} ${B529_OOS_LABEL}${row ? variantSegment(row) + priceAgeNote(row.price_as_of) : ''}`;
-    return productEntry(profile, '- ', `${productName} — ${entry.shop}`, link, tail);
+    return productEntry(profile, '- ', `${productName} — ${displayShopName(entry.shop, entry.shop_id)}`, link, tail);
   });
 }
 
@@ -456,7 +457,7 @@ function b529Extra(prep: B529Prep, results: EanResult[], profile: RenderProfile,
 }
 
 function b529NotFoundLine(prep: B529Prep): string {
-  return prep.notFound.length > 0 ? `${B529_NOT_FOUND_PREFIX}${prep.notFound.join(', ')}` : '';
+  return prep.notFound.length > 0 ? `${B529_NOT_FOUND_PREFIX}${prep.notFound.map(n => displayShopName(n)).join(', ')}` : '';
 }
 
 /** Declared-optional output fields (both tools, both profiles). */
@@ -482,14 +483,14 @@ function b529Structured(prep: B529Prep, results: EanResult[], ean: string, loc: 
   const priceOf = (s: B529StateEntry) => results.find(r => r.shop_id === s.shop_id)?.price ?? s.price;
   return {
     shop_states: prep.states.map(s => ({
-      shop: s.shop,
+      shop: displayShopName(s.shop, s.shop_id),
       shop_id: s.shop_id,
       state: s.state,
       price: s.state === 'not_found' ? null : (priceOf(s) ?? null),
       ...(s.state === 'not_found' ? {} : { affiliate_url: buildGoUrl(s.shop_id, ean, loc) }),
     })),
-    not_found_shops: prep.notFound,
-    pending_shops: prep.pending,
+    not_found_shops: prep.notFound.map(n => displayShopName(n)),
+    pending_shops: prep.pending.map(n => displayShopName(n)),
     ...(prep.pending.length > 0
       ? { refresh_required: { retry_after_seconds: B529_RETRY_SECONDS, instruction: b529RefreshInstruction(tool) } }
       : {}),
@@ -599,7 +600,7 @@ function b519AnyStale(rows: Array<{ price_as_of?: string | null }> | undefined):
 
 // Still-stale after the last fetch: structured flag + one model-facing line per stale shop.
 export function b519RefreshPending(
-  rows: Array<{ shop: string; price_as_of?: string | null }>,
+  rows: Array<{ shop: string; shop_id?: string; price_as_of?: string | null }>,
   toolName: string,
 ): { fields: { refresh_pending?: true; retry_after_seconds?: number }; hint: string } {
   if (!b519Enabled()) return { fields: {}, hint: "" };
@@ -608,7 +609,7 @@ export function b519RefreshPending(
   const lines = stale.map(r => {
     const d = new Date(r.price_as_of as string);
     const dm = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
-    return `⏳ IMPORTANT — the price of ${r.shop} is being refreshed right now (shown price is from ${dm}). Call ${toolName} for this exact EAN ONE more time in about 30 seconds and tell the user you are checking the current price. Do this only ONCE.`;
+    return `⏳ IMPORTANT — the price of ${displayShopName(r.shop, r.shop_id)} is being refreshed right now (shown price is from ${dm}). Call ${toolName} for this exact EAN ONE more time in about 30 seconds and tell the user you are checking the current price. Do this only ONCE.`;
   });
   return { fields: { refresh_pending: true, retry_after_seconds: 30 }, hint: `\n\n${lines.join("\n")}` };
 }
@@ -709,7 +710,7 @@ function b404NotResolvedResult(profile: RenderProfile, userText: string, product
     ...mcpText(`${B404_DIRECTIVE}\n\n${userText}${footer(profile)}`),
     structuredContent: {
       product_name: productName || 'Das Produkt', // required (string)
-      shop: shop || '',                           // required (string); never guessed
+      shop: displayShopName(shop || ''),             // required (string); never guessed
       status: 'not_resolved',
       resolved: false,
       message: userText,
@@ -910,7 +911,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           return productEntry(
             renderProfile,
             `${i + 1}. `,
-            `${p.product_name} — ${p.shop}`,
+            `${p.product_name} — ${displayShopName(p.shop, p.shop_id)}`,
             link,
             ` — **${formatEuro(p.price)}** ${stockIcon}${variantSegment(p)}${p.ean ? ` · EAN ${p.ean}` : ""}${priceAgeNote(p.price_as_of)}`,
           );
@@ -928,7 +929,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               brand: p.brand ?? undefined,
               price: p.price,
               currency: "EUR",
-              shop: p.shop,
+              shop: displayShopName(p.shop, p.shop_id),
               availability: p.in_stock ? "in_stock" : "out_of_stock",
               affiliate_url: buildGoUrl(p.shop_id, p.ean ?? null, 'search_product', p.purchase_url ?? p.product_url),
             })),
@@ -1079,7 +1080,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           return productEntry(
             renderProfile,
             `${i + 1}. `,
-            `${productName} — ${r.shop}`,
+            `${productName} — ${displayShopName(r.shop, r.shop_id)}`,
             link,
             `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
           );
@@ -1098,15 +1099,15 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             const saving = refEntry.price - cheapestInStock.price;
             const savingPct = (saving / refEntry.price) * 100;
             const savingPctStr = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(savingPct) + ' %';
-            referenceLine = `\n\n**${refEntry.shop}: ${formatEuro(refEntry.price)} — günstiger bei ${cheapestInStock.shop}: ${formatEuro(cheapestInStock.price)} (${formatEuro(saving)} / ${savingPctStr} günstiger).**`;
+            referenceLine = `\n\n**${displayShopName(refEntry.shop, refEntry.shop_id)}: ${formatEuro(refEntry.price)} — günstiger bei ${displayShopName(cheapestInStock.shop, cheapestInStock.shop_id)}: ${formatEuro(cheapestInStock.price)} (${formatEuro(saving)} / ${savingPctStr} günstiger).**`;
             referenceComparison = {
-              reference_shop: refEntry.shop,
+              reference_shop: displayShopName(refEntry.shop, refEntry.shop_id),
               reference_price: refEntry.price,
               saving,
               saving_percent: Math.round(savingPct * 10) / 10,
             };
           } else {
-            referenceLine = `\n\n**${refEntry.shop} ist bereits der günstigste Shop für dieses Produkt.**`;
+            referenceLine = `\n\n**${displayShopName(refEntry.shop, refEntry.shop_id)} ist bereits der günstigste Shop für dieses Produkt.**`;
           }
         }
 
@@ -1116,7 +1117,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // Flag OFF ⇒ hasUncertain false ⇒ today's out-of-stock line byte-for-byte.
         const hasUncertain = results.some(r => isVariantUncertain(r));
         const bestPriceLine = cheapestInStock
-          ? `**Best price: ${formatEuro(cheapestInStock.price)} at ${cheapestInStock.shop}**`
+          ? `**Best price: ${formatEuro(cheapestInStock.price)} at ${displayShopName(cheapestInStock.shop, cheapestInStock.shop_id)}**`
           : hasUncertain
           ? B309_ALL_UNCERTAIN_LINE
           : `**Currently out of stock at every shop listed — no in-stock best price available.**`;
@@ -1136,7 +1137,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ean,
             product_name: productName,
             prices: results.map(r => ({
-              shop: r.shop,
+              shop: displayShopName(r.shop, r.shop_id),
               price: r.price,
               currency: "EUR",
               // B-309: claude profile only — never assert a stock state for an uncertain
@@ -1146,7 +1147,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
               ...b519AgeFields(r),
             })),
-            cheapest_shop: cheapestInStock ? cheapestInStock.shop : "",
+            cheapest_shop: cheapestInStock ? displayShopName(cheapestInStock.shop, cheapestInStock.shop_id) : "",
             cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
             ...(b529 ? b529Structured(b529, results, ean, 'get_best_price', 'get_best_price') : {}),
             ...(cheapestAllStale ? { cheapest_price_stale: true } : {}),
@@ -1310,13 +1311,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
 
         md += `### Optimal Shop Split\n`;
         for (const order of result.orders) {
-          md += `\n**${order.shopName}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
+          md += `\n**${displayShopName(order.shopName)}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
           for (const item of order.products) {
             const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart', item.url);
             md += productEntry(
               renderProfile,
               `  - `,
-              `${item.productName} — ${order.shopName}`,
+              `${item.productName} — ${displayShopName(order.shopName)}`,
               itemLink,
               ` — **${formatEuro(item.price)}**`,
               `    `,
@@ -1334,7 +1335,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? data.excluded_stale_offers
           : null;
         if (excludedStale) {
-          md += `\n${b519ExcludedLine(excludedStale.shops)}\n`;
+          md += `\n${b519ExcludedLine(excludedStale.shops.map(n => displayShopName(n)))}\n`;
         }
 
         const baselineLabel = result.baselineType === 'source_shops'
@@ -1357,14 +1358,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
           // B-175: pre-format the absolute € delta so the model never has to subtract.
           const deltaEuro = sso.grandTotal - result.totalCost;
-          md += `\n💡 Lieber alles aus einem Shop? ${sso.shop} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          md += `\n💡 Lieber alles aus einem Shop? ${displayShopName(sso.shop)} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
           const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
           for (const item of sso.items ?? []) {
             const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item', item.url);
             md += productEntry(
               renderProfile,
               `  - `,
-              `${item.productName} — ${sso.shop}`,
+              `${item.productName} — ${displayShopName(sso.shop)}`,
               itemLink,
               ` — **${formatEuro(item.price)}**`,
               `    `,
@@ -1379,7 +1380,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             md += productEntry(
               renderProfile,
               `- `,
-              `${item.productName} — ${order.shopName}`,
+              `${item.productName} — ${displayShopName(order.shopName)}`,
               itemLink,
               ``,
             ) + `\n`;
@@ -1392,7 +1393,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             : undefined;
 
         const shops_used = result.orders.map(order => ({
-          shop: order.shopName,
+          shop: displayShopName(order.shopName),
           subtotal: order.subtotal,
           shipping: order.shippingCost,
           items: order.products.map(item => ({
@@ -1417,11 +1418,11 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               const deltaEuro = sso.grandTotal - result.totalCost;
               const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
               return {
-                shop: sso.shop,
+                shop: displayShopName(sso.shop),
                 total,
                 delta_percent: deltaPercent,
                 delta_euro: round2(deltaEuro),
-                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${sso.shop} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} (ca. +${formatPercent(deltaPercent)}) teurer.`,
+                message: `Lieber alles in einem Shop und weniger Pakete? Bestell alles bei ${displayShopName(sso.shop)} für ${formatEuro(total)} – ${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} (ca. +${formatPercent(deltaPercent)}) teurer.`,
                 items: (sso.items ?? []).map(it => ({
                   name: it.productName,
                   ean: it.ean,
@@ -1458,7 +1459,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
-              ...(excludedStale ? { excluded_stale_offers: excludedStale } : {}),
+              ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
               disclosure: footer(renderProfile),
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
               savings: result.savings !== null
@@ -1482,7 +1483,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               stale_cache_warning: data.stale_cache_warning
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
-              ...(excludedStale ? { excluded_stale_offers: excludedStale } : {}),
+              ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
               disclosure: footer(renderProfile),
             };
 
@@ -1553,7 +1554,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         let md = `## Bikefuchs — Shop Shipping Overview\n\n`;
 
         for (const [shopName, countries] of shopEntries) {
-          md += `### ${shopName}\n`;
+          md += `### ${displayShopName(shopName)}\n`;
           for (const [c, info] of Object.entries(countries)) {
             if (country && c !== country) continue;
             const freeAt =
@@ -1578,7 +1579,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 ? `Free from ${formatEuro(info.free_shipping_threshold)}`
                 : "No free shipping";
             return {
-              name: shopName,
+              name: displayShopName(shopName),
               country: country ?? "DE",
               shipping_de: de ? shippingLabel(de) : undefined,
               shipping_at: at ? shippingLabel(at) : undefined,
@@ -1649,7 +1650,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         const data = await apiJson<ShippingResult>(`/api/shops/shipping?${params}`);
 
         const total = data.cart_value + data.shipping_cost;
-        let md = `## Shipping: ${data.shop} (${country})\n\n`;
+        let md = `## Shipping: ${displayShopName(data.shop)} (${country})\n\n`;
         md += `- Cart value: ${formatEuro(data.cart_value)}\n`;
         md += `- Shipping: ${formatEuro(data.shipping_cost)}${data.is_free ? " **(FREE)**" : ""}\n`;
         md += `- **Total: ${formatEuro(total)}**\n`;
@@ -1668,7 +1669,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         return {
           ...mcpText(md + footer(renderProfile)),
           structuredContent: {
-            shop: data.shop,
+            shop: displayShopName(data.shop),
             country: data.country,
             cart_value: data.cart_value,
             shipping_cost: data.shipping_cost,
@@ -1782,7 +1783,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           md += productEntry(
             renderProfile,
             `${i + 1}. `,
-            `${productName} — ${r.shop}`,
+            `${productName} — ${displayShopName(r.shop, r.shop_id)}`,
             link,
             `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
           ) + `\n`;
@@ -1814,7 +1815,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ean,
             product_name: productName,
             alternatives: results.map(r => ({
-              shop: r.shop,
+              shop: displayShopName(r.shop, r.shop_id),
               price: r.price,
               currency: "EUR",
               // B-309: claude profile only. openai (renderProfile==='openai') is
@@ -2007,7 +2008,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ...mcpText(`## Variante wählen\n\n${msg}\n\n${lines.join('\n')}${link}${directive}${footer(renderProfile)}`),
             structuredContent: {
               product_name: pn,                 // required (string)
-              shop: data.shop ?? 'Shop',        // required (string)
+              shop: displayShopName(data.shop ?? 'Shop', data.shop_id),        // required (string)
               status: 'pick_variant',
               resolved: false,
               axis: data.axis,
@@ -2035,7 +2036,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // relay a calm "open the product and pick the variant" message with the family link.
         if (data.status === 'not_resolved') {
           const pn = data.product_name ?? 'Das Produkt';
-          const msg = data.message ?? `${pn} gefunden – Variante nicht eindeutig, bitte auf der Shop-Seite wählen und Link erneut einfügen.`;
+          const msg = data.message ? displayShopInMessage(data.message, data.shop) : `${pn} gefunden – Variante nicht eindeutig, bitte auf der Shop-Seite wählen und Link erneut einfügen.`;
           const link = data.family_url ? `\n\n${data.family_url}` : '';
           // content → Claude (reads ONLY content). structuredContent → ChatGPT + schema validation
           // (the tool has an outputSchema, so a non-error response MUST carry structuredContent).
@@ -2043,7 +2044,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             ...mcpText(`## Variante wählen\n\n${msg}${link}${footer(renderProfile)}`),
             structuredContent: {
               product_name: pn,                 // required (string)
-              shop: data.shop ?? 'Rose Bikes',  // required (string)
+              shop: displayShopName(data.shop ?? 'ROSE Bikes', data.shop_id),  // required (string)
               status: 'not_resolved',
               resolved: false,
               family_url: data.family_url,
@@ -2064,7 +2065,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         // Only ever emit a /go/ affiliate link — never the raw shop URL. When no
         // shop_id (link empty), render the title without a hyperlink.
         const link = buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.purchase_url ?? data.product_url);
-        const title = `${data.product_name ?? "Product"} — ${data.shop}`;
+        const title = `${data.product_name ?? "Product"} — ${displayShopName(data.shop, data.shop_id)}`;
         const ageNote = priceAgeNote(data.price_as_of);
         let md = `## Resolved Product\n\n`;
         md += renderProfile === 'openai'
@@ -2073,7 +2074,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         md += `${DISCLOSURE_DIRECTIVE}\n\n`;
         if (data.ean) {
           md += `**EAN:** ${data.ean}\n\n`;
-          md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${data.shop}.`;
+          md += `💡 Next step: call \`get_best_price(ean: "${data.ean}", reference_shop: "${data.shop_id}")\` to compare all shops and see how much cheaper it is vs. ${displayShopName(data.shop, data.shop_id)}.`;
         } else {
           md += `⚠️ No EAN found for this product — price comparison may not be available.`;
         }
@@ -2084,7 +2085,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             product_name: data.product_name ?? "Product",
             ean: data.ean ?? undefined,
             price: data.price,
-            shop: data.shop,
+            shop: displayShopName(data.shop, data.shop_id),
             affiliate_url: buildGoUrl(data.shop_id, data.ean ?? null, 'resolve_product', data.purchase_url ?? data.product_url) || undefined,
             ...(renderProfile === 'openai'
               ? {
