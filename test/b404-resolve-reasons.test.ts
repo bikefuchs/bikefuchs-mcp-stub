@@ -179,8 +179,8 @@ test('the three German user texts are verbatim (T1/T2/T3)', async () => {
 // ── tools/list must not move (switch ON and OFF) ───────────────────────────────
 // B-522 follow-up 2026-10-23: q description no longer claims description/spec search
 const FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
-  claude: { bytes: 15278, sha256: 'f14d81edf8a745d70a6e8144780e8b282302c6b86fb74f5eb3fbf9d25f2bc5c9' },
-  openai: { bytes: 17105, sha256: '367aa2bd6d9c72c764c7ea4e71dc4fad05c32d5e5ca7d61d8328e18800a16ca7' },
+  claude: { bytes: 16142, sha256: 'b185a4519b8f42070017754523468e7a0d151222d7f119cae7118ac18f40865d' },
+  openai: { bytes: 17934, sha256: '8ffa16a2f774cc9ed72a07fd1855f67e5baeba2281b74d7f48177df7ddcfe418' },
 };
 for (const p of PROFILES) {
   for (const on of [false, true]) {

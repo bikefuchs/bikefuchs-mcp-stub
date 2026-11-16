@@ -1,0 +1,164 @@
+{
+ "success": true,
+ "country": "DE",
+ "eans_requested": [
+  "5056286919180",
+  "4524667879565",
+  "4550170172053"
+ ],
+ "eans_resolved": [
+  "5056286919180",
+  "4524667879565",
+  "4550170172053"
+ ],
+ "eans_skipped": [],
+ "not_available_eans": [],
+ "result": {
+  "orders": [
+   {
+    "shopName": "Fahrradteile",
+    "products": [
+     {
+      "productName": "A",
+      "shopName": "Fahrradteile",
+      "price": 62,
+      "url": "https://fahrradteile.test/p/5056286919180",
+      "inStock": true,
+      "ean": "5056286919180"
+     },
+     {
+      "productName": "B",
+      "shopName": "Fahrradteile",
+      "price": 90,
+      "url": "https://fahrradteile.test/p/4524667879565",
+      "inStock": true,
+      "ean": "4524667879565"
+     }
+    ],
+    "subtotal": 152,
+    "shippingCost": 0,
+    "total": 152
+   },
+   {
+    "shopName": "BOC24",
+    "products": [
+     {
+      "productName": "C",
+      "shopName": "BOC24",
+      "price": 20,
+      "url": "https://boc24.test/p/4550170172053",
+      "inStock": true,
+      "ean": "4550170172053"
+     }
+    ],
+    "subtotal": 20,
+    "shippingCost": 4.95,
+    "total": 24.95
+   }
+  ],
+  "totalCost": 176.95,
+  "totalShipping": 4.95,
+  "totalProducts": 3,
+  "savings": 8.850000000000023,
+  "savingsPercent": 4.8,
+  "sourceShopBaseline": 185.8,
+  "sourceShopPartialAvailability": false,
+  "unavailableAtSourceCount": 0,
+  "sourceShopUncertainExclusion": false,
+  "recommendation": "optimized",
+  "baselineType": "cheapest_per_item",
+  "singleShopOption": {
+   "shop": "Maciag Offroad",
+   "productsTotal": 170,
+   "shipping": 0,
+   "grandTotal": 180.85,
+   "items": [
+    {
+     "productName": "A",
+     "price": 60,
+     "url": "https://maciag.test/p/5056286919180",
+     "ean": "5056286919180"
+    },
+    {
+     "productName": "B",
+     "price": 90,
+     "url": "https://maciag.test/p/4524667879565",
+     "ean": "4524667879565"
+    },
+    {
+     "productName": "C",
+     "price": 20,
+     "url": "https://maciag.test/p/4550170172053",
+     "ean": "4550170172053"
+    }
+   ],
+   "guarantee": {
+    "shop": "maciag",
+    "shopName": "Maciag Offroad",
+    "claimedLines": [
+     {
+      "ean": "4524667879565",
+      "productName": "B",
+      "guaranteeShopUrl": "https://maciag.test/p/4524667879565",
+      "qty": 1,
+      "claimedQty": 1,
+      "guaranteeOwnPrice": 100,
+      "matchedPrice": 90,
+      "competitorShop": "Fahrradteile",
+      "competitorPrice": 90,
+      "competitorShipping": 5.9,
+      "variantHint": "",
+      "competitorShopSlug": "fahrrad-teile-shop"
+     },
+     {
+      "ean": "4550170172053",
+      "productName": "C",
+      "guaranteeShopUrl": "https://maciag.test/p/4550170172053",
+      "qty": 1,
+      "claimedQty": 1,
+      "guaranteeOwnPrice": 80,
+      "matchedPrice": 20,
+      "competitorShop": "BOC24",
+      "competitorPrice": 20,
+      "competitorShipping": 4.95,
+      "variantHint": "",
+      "competitorShopSlug": "boc24"
+     }
+    ],
+    "shippingAdjustment": 10.85,
+    "unadjustedGroupTotal": 240,
+    "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+    "notes": [],
+    "display": {
+     "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+     "notes": [],
+     "claimLines": [
+      {
+       "ean": "4524667879565",
+       "guaranteeShopUrl": "https://maciag.test/p/4524667879565",
+       "text": "per Bestpreisgarantie anfragen · günstiger bei fahrrad-teile.shop: 90,00 € + 5,90 € Versand",
+       "competitorShippingShown": 5.9
+      },
+      {
+       "ean": "4550170172053",
+       "guaranteeShopUrl": "https://maciag.test/p/4550170172053",
+       "text": "per Bestpreisgarantie anfragen · günstiger bei BOC24: 20,00 € + 4,95 € Versand",
+       "competitorShippingShown": 4.95
+      }
+     ],
+     "shippingAdjustmentLine": "Versandausgleich Bestpreisgarantie +10,85 €",
+     "footnote": "* Erwarteter Maximalpreis, wenn Maciag Offroad deine Bestpreisanfrage annimmt. Der Shop prüft jede Anfrage selbst; ohne Anpassung kostet die Bestellung 240,00 €.",
+     "boxText": "Alles bei Maciag Offroad für 180,85 €* mit Bestpreisgarantie — nur +2,2 % mehr als das Optimum, dafür nur ein Paket."
+    }
+   }
+  },
+  "reference": {
+   "mode": "A",
+   "label": "Alles bei einem Shop",
+   "total": 240,
+   "savings": 63.05000000000001,
+   "savingsPercent": 26.3
+  }
+ },
+ "guaranteeApplied": null
+}

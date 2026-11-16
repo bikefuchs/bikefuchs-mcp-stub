@@ -1,0 +1,122 @@
+{
+ "success": true,
+ "country": "DE",
+ "eans_requested": [
+  "4055184043202",
+  "5056286974486"
+ ],
+ "eans_resolved": [
+  "4055184043202",
+  "5056286974486"
+ ],
+ "eans_skipped": [],
+ "not_available_eans": [],
+ "result": {
+  "orders": [
+   {
+    "shopName": "Maciag Offroad",
+    "products": [
+     {
+      "productName": "Magura MDP 8 Beläge",
+      "shopName": "Maciag Offroad",
+      "price": 14.99,
+      "url": "https://maciag.test/p/4055184043202",
+      "inStock": true,
+      "ean": "4055184043202"
+     },
+     {
+      "productName": "Endura SingleTrack Brille",
+      "shopName": "Maciag Offroad",
+      "price": 42.99,
+      "url": "https://maciag.test/p/5056286974486",
+      "inStock": true,
+      "ean": "5056286974486"
+     }
+    ],
+    "subtotal": 57.98,
+    "shippingCost": 4.95,
+    "total": 67.46
+   }
+  ],
+  "totalCost": 67.46,
+  "totalShipping": 9.48,
+  "totalProducts": 2,
+  "savings": 0.4200000000000017,
+  "savingsPercent": 0.6,
+  "sourceShopBaseline": 67.88,
+  "sourceShopPartialAvailability": false,
+  "unavailableAtSourceCount": 0,
+  "sourceShopUncertainExclusion": false,
+  "recommendation": "optimized",
+  "baselineType": "cheapest_per_item",
+  "singleShopOption": null,
+  "reference": {
+   "mode": "A",
+   "label": "Alles bei einem Shop",
+   "total": 82.89,
+   "savings": 15.430000000000007,
+   "savingsPercent": 18.6
+  }
+ },
+ "guaranteeApplied": {
+  "shop": "maciag",
+  "shopName": "Maciag Offroad",
+  "claimedLines": [
+   {
+    "ean": "4055184043202",
+    "productName": "Magura MDP 8 Beläge",
+    "guaranteeShopUrl": "https://maciag.test/p/4055184043202",
+    "qty": 1,
+    "claimedQty": 1,
+    "guaranteeOwnPrice": 21.95,
+    "matchedPrice": 14.99,
+    "competitorShop": "Bike-Discount",
+    "competitorPrice": 14.99,
+    "competitorShipping": 4.49,
+    "variantHint": "",
+    "competitorShopSlug": "bike-discount"
+   },
+   {
+    "ean": "5056286974486",
+    "productName": "Endura SingleTrack Brille",
+    "guaranteeShopUrl": "https://maciag.test/p/5056286974486",
+    "qty": 1,
+    "claimedQty": 1,
+    "guaranteeOwnPrice": 55.99,
+    "matchedPrice": 42.99,
+    "competitorShop": "bike-components",
+    "competitorPrice": 42.99,
+    "competitorShipping": 4.99,
+    "variantHint": "",
+    "competitorShopSlug": "bike-components"
+   }
+  ],
+  "shippingAdjustment": 4.53,
+  "unadjustedGroupTotal": 82.89,
+  "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+  "notes": [],
+  "unadjustedTotal": 67.46000000000001,
+  "reason": "fewer_non_affiliate_packages",
+  "display": {
+   "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+   "notes": [],
+   "claimLines": [
+    {
+     "ean": "4055184043202",
+     "guaranteeShopUrl": "https://maciag.test/p/4055184043202",
+     "text": "per Bestpreisgarantie anfragen · günstiger bei Bike-Discount: 14,99 € + 4,49 € Versand",
+     "competitorShippingShown": 4.49
+    },
+    {
+     "ean": "5056286974486",
+     "guaranteeShopUrl": "https://maciag.test/p/5056286974486",
+     "text": "per Bestpreisgarantie anfragen · günstiger bei bike-components: 42,99 € + 4,99 € Versand",
+     "competitorShippingShown": 4.99
+    }
+   ],
+   "shippingAdjustmentLine": "Versandausgleich Bestpreisgarantie +4,53 €",
+   "footnote": "* Erwarteter Maximalpreis, wenn Maciag Offroad deine Bestpreisanfrage annimmt. Der Shop prüft jede Anfrage selbst; ohne Anpassung kostet die Bestellung 82,89 €.",
+   "recommendation": "Am günstigsten: alles bei Maciag Offroad per Bestpreisgarantie – in 1 Paket."
+  }
+ }
+}

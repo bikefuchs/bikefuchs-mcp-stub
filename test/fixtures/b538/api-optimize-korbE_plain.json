@@ -1,0 +1,120 @@
+{
+ "success": true,
+ "country": "DE",
+ "eans_requested": [
+  "7630554949567",
+  "9010583262215",
+  "4717784043098",
+  "0196261014440"
+ ],
+ "eans_resolved": [
+  "7630554949567",
+  "9010583262215",
+  "4717784043098",
+  "0196261014440"
+ ],
+ "eans_skipped": [],
+ "not_available_eans": [],
+ "result": {
+  "orders": [
+   {
+    "shopName": "Rose Bikes",
+    "products": [
+     {
+      "productName": "Korb E Artikel A",
+      "shopName": "Rose Bikes",
+      "price": 19.95,
+      "url": "https://rosebikes.test/p/7630554949567",
+      "inStock": true,
+      "ean": "7630554949567"
+     },
+     {
+      "productName": "Korb E Artikel B",
+      "shopName": "Rose Bikes",
+      "price": 34.95,
+      "url": "https://rosebikes.test/p/9010583262215",
+      "inStock": true,
+      "ean": "9010583262215"
+     },
+     {
+      "productName": "Korb E Artikel C",
+      "shopName": "Rose Bikes",
+      "price": 24.95,
+      "url": "https://rosebikes.test/p/4717784043098",
+      "inStock": true,
+      "ean": "4717784043098"
+     }
+    ],
+    "subtotal": 79.85000000000001,
+    "shippingCost": 2.95,
+    "total": 82.80000000000001
+   },
+   {
+    "shopName": "bike-components",
+    "products": [
+     {
+      "productName": "Korb E Artikel D",
+      "shopName": "bike-components",
+      "price": 55.99,
+      "url": "https://bike-components.test/p/0196261014440",
+      "inStock": true,
+      "ean": "0196261014440"
+     }
+    ],
+    "subtotal": 55.99,
+    "shippingCost": 4.99,
+    "total": 60.980000000000004
+   }
+  ],
+  "totalCost": 143.78000000000003,
+  "totalShipping": 7.94,
+  "totalProducts": 4,
+  "savings": 0,
+  "savingsPercent": 0,
+  "sourceShopBaseline": 143.78000000000003,
+  "sourceShopPartialAvailability": false,
+  "unavailableAtSourceCount": 0,
+  "sourceShopUncertainExclusion": false,
+  "recommendation": "optimized",
+  "baselineType": "cheapest_per_item",
+  "singleShopOption": {
+   "shop": "Maciag Offroad",
+   "productsTotal": 164.34,
+   "shipping": 0,
+   "grandTotal": 164.34,
+   "items": [
+    {
+     "productName": "Korb E Artikel A",
+     "price": 29.45,
+     "url": "https://maciag.test/p/7630554949567",
+     "ean": "7630554949567"
+    },
+    {
+     "productName": "Korb E Artikel B",
+     "price": 44.95,
+     "url": "https://maciag.test/p/9010583262215",
+     "ean": "9010583262215"
+    },
+    {
+     "productName": "Korb E Artikel C",
+     "price": 31.95,
+     "url": "https://maciag.test/p/4717784043098",
+     "ean": "4717784043098"
+    },
+    {
+     "productName": "Korb E Artikel D",
+     "price": 57.99,
+     "url": "https://maciag.test/p/0196261014440",
+     "ean": "0196261014440"
+    }
+   ]
+  },
+  "reference": {
+   "mode": "A",
+   "label": "Alles bei einem Shop",
+   "total": 164.34,
+   "savings": 20.559999999999974,
+   "savingsPercent": 12.5
+  }
+ }
+}

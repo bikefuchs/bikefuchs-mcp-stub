@@ -375,6 +375,65 @@ function isTrustedGoLink(url: string): boolean {
   }
 }
 
+// ── B-538: price-guarantee rendering helpers ─────────────────────────────────
+// Every German sentence comes from the main app (`display`); this file only arranges them and builds the competitor
+// /go/ link itself (src=mcp) from `competitorShopSlug` + `ean`. B-133: nothing here names how prices are obtained.
+const GUARANTEE_COMPETITOR_LOC = 'guarantee_competitor';
+
+/** Model-facing note (English), content AND structuredContent (guarantee_note on /mcp, appended to tell_user on /mcp/openai). */
+function guaranteeNote(shopName: string): string {
+  return `The ${displayShopName(shopName)} lines marked 'per Bestpreisgarantie anfragen' are price-guarantee requests, not guaranteed prices: the shop reviews each request itself. Show the competitor link for each such line and give the 'ohne Anpassung' total next to the adjusted total.`;
+}
+
+/** "Artikel X + Versand Y + Versandausgleich Bestpreisgarantie Z = T" — adds up; the label and amount are the API's own text. */
+function guaranteeOrderLine(order: { subtotal: number; shippingCost: number; total: number }, g: GuaranteeGroupApi): string {
+  let line = `Artikel ${formatEuro(order.subtotal)} + Versand ${formatEuro(order.shippingCost)}`;
+  const adj = g.display.shippingAdjustmentLine;
+  if (adj) {
+    const m = /^(.*?)\s([+−-])([\d.,]+ €)$/.exec(adj);
+    line += m ? ` ${m[2] === '+' ? '+' : '−'} ${m[1]} ${m[3]}` : ` + ${adj}`;
+  }
+  return `${line} = ${formatEuro(order.total)}`;
+}
+
+/** The request line under a claimed row: the API's text, linked to the competitor offer (own /go/ link, src=mcp). */
+function guaranteeClaimEntry(profile: RenderProfile, g: GuaranteeGroupApi, itemUrl: string, head: string, urlIndent: string): string {
+  const claim = g.display.claimLines.find(c => c.guaranteeShopUrl === itemUrl);
+  if (!claim) return '';
+  const slug = g.claimedLines.find(l => l.guaranteeShopUrl === itemUrl)?.competitorShopSlug ?? null;
+  const link = buildGoUrl(slug, claim.ean, GUARANTEE_COMPETITOR_LOC);
+  return `\n` + productEntry(profile, head, claim.text, link, '', urlIndent);
+}
+
+/** howTo + notes + footnote of one guarantee group, verbatim. */
+function guaranteeFooter(g: GuaranteeGroupApi): string {
+  return [g.display.howTo, ...g.display.notes, g.display.footnote].filter(Boolean).join('\n');
+}
+
+/** structuredContent `guarantee` object (both profiles). */
+function guaranteeStructured(g: GuaranteeAppliedApi, totalCost: number) {
+  return {
+    shop: displayShopName(g.shopName),
+    reason: g.reason,
+    total: round2(totalCost),
+    unadjusted_total: round2(g.unadjustedTotal),
+    shipping_adjustment: round2(g.shippingAdjustment),
+    lines: g.display.claimLines.map(c => {
+      const l = g.claimedLines.find(x => x.guaranteeShopUrl === c.guaranteeShopUrl);
+      const url = l ? buildGoUrl(l.competitorShopSlug, c.ean, GUARANTEE_COMPETITOR_LOC) : '';
+      return {
+        ean: c.ean,
+        own_price: round2(l?.guaranteeOwnPrice ?? 0),
+        matched_price: round2(l?.matchedPrice ?? 0),
+        competitor_shop: displayShopName(l?.competitorShop ?? ''),
+        competitor_price: round2(l?.competitorPrice ?? 0),
+        competitor_shipping_shown: c.competitorShippingShown === null ? null : round2(c.competitorShippingShown),
+        ...(url ? { competitor_url: url } : {}),
+      };
+    }),
+  };
+}
+
 function buildGoUrl(shopId: string | null, ean: string | null, toolName: string, readyLink?: string | null): string {
   if (shopId && ean && /^\d{8,14}$/.test(ean)) {
     const slug = INTERNAL_ID_TO_SLUG[shopId] ?? shopId;
@@ -772,7 +831,7 @@ function toolAnnotations(title: string, profile: RenderProfile) {
 
 // B-477: single source for the initialize result. createServer() and the
 // early-exit answer (b477EarlyExit) both read these, so the two can never drift.
-export const SERVER_INFO = { name: "bikefuchs", version: "2.5.1" };
+export const SERVER_INFO = { name: "bikefuchs", version: "2.6.0" };
 
 export function buildServerInstructions(): string {
   return `Bikefuchs is a price comparison engine for bicycle parts, components, clothing, and accessories across German/Austrian online bike shops. It covers over 100,000 products from brands like Shimano, SRAM, Magura, Schwalbe, Continental, and more.
@@ -982,6 +1041,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           availability: z.string().optional(),
           affiliate_url: z.string().describe("Direct link to buy at this shop. Always show this URL to the user."),
           ...(b519Enabled() ? { price_as_of: z.string().optional(), price_stale: z.boolean().optional() } : {}),
+          // B-538: present (true) only on a price-guarantee row
+          price_guarantee: z.boolean().optional(),
         })),
         cheapest_shop: z.string(),
         cheapest_price: z.number(),
@@ -1013,7 +1074,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
       console.info(`[MCP] get_best_price: ean=${ean} country=${country}`);
       try {
         // B-519 part 2: flag OFF ⇒ a single fetch, exactly as before.
-        const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[]; shop_states?: B529StateEntry[]; not_found_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}`);
+        const gbpFetch = () => apiJson<{ ean?: string; results?: EanResult[]; total?: number; cheapest?: EanResult | null; error?: string; scraping_pending?: boolean; pending_shops?: string[]; shop_states?: B529StateEntry[]; not_found_shops?: string[] }>(`/api/products/${ean}?country=${country}${feedOnlyParam(feedOnly)}&guarantee=1`);
         const data = await b519FetchWithRefresh({
           tool: "get_best_price", profile: renderProfile, ean,
           fetchOnce: gbpFetch,
@@ -1082,7 +1143,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             `${i + 1}. `,
             `${productName} — ${displayShopName(r.shop, r.shop_id)}`,
             link,
-            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}`,
+            `${trophy} — **${formatEuro(r.price)}** ${stockIcon}${variantSegment(r)}${priceAgeNote(r.price_as_of)}${r.price_guarantee === true ? ' · ✓ Bestpreisgarantie' : ''}`,
           );
         });
 
@@ -1146,6 +1207,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               availability: (renderProfile !== 'openai' && isVariantUncertain(r)) ? "unknown" : (r.in_stock ? "in_stock" : "out_of_stock"),
               affiliate_url: buildGoUrl(r.shop_id, ean, 'get_best_price'),
               ...b519AgeFields(r),
+              ...(r.price_guarantee === true ? { price_guarantee: true } : {}),
             })),
             cheapest_shop: cheapestInStock ? displayShopName(cheapestInStock.shop, cheapestInStock.shop_id) : "",
             cheapest_price: cheapestInStock ? cheapestInStock.price : 0,
@@ -1203,6 +1265,23 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           suggestion: z.string(),
         }).optional(),
         ...(b519Enabled() ? { excluded_stale_offers: z.object({ count: z.number(), shops: z.array(z.string()) }).optional() } : {}),
+        // B-538: price-guarantee result (both profiles, optional — absent unless the main app evaluated the guarantee).
+        guarantee: z.object({
+          shop: z.string(),
+          reason: z.string(),
+          total: z.number(),
+          unadjusted_total: z.number(),
+          shipping_adjustment: z.number(),
+          lines: z.array(z.object({
+            ean: z.string(),
+            own_price: z.number(),
+            matched_price: z.number(),
+            competitor_shop: z.string(),
+            competitor_price: z.number(),
+            competitor_shipping_shown: z.number().nullable(),
+            competitor_url: z.string().optional(),
+          })),
+        }).optional(),
         // B-162 pilot: openai profile only. Spread is empty on the claude
         // profile, so the claude outputSchema stays byte-identical to main.
         ...(renderProfile === 'openai'
@@ -1231,7 +1310,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 })).optional(),
               }).optional(),
             }
-          : { disclosure: z.string().optional() }),
+          // B-538: model note for the guarantee (the openai profile carries it inside the existing tell_user instead)
+          : { disclosure: z.string().optional(), guarantee_note: z.string().optional() }),
       },
       annotations: toolAnnotations('Optimize Shopping Cart', renderProfile),
     },
@@ -1250,7 +1330,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
             headers: { "Content-Type": "application/json" },
             // Feed-only mode: the API skips scraping shops AND the stale-prices gate,
             // so optimization runs over feed shops only and is never blocked by them.
-            body: JSON.stringify(feedOnly ? { eans, country, feedOnly: true } : { eans, country }),
+            // B-538: guaranteeDisplay asks the main app to evaluate + apply the price guarantee (ignored by an older API).
+            body: JSON.stringify(feedOnly ? { eans, country, feedOnly: true, guaranteeDisplay: true } : { eans, country, guaranteeDisplay: true }),
           }),
           needsRefresh: d => d.success === true && !!d.result && (d.excluded_stale_offers?.count ?? 0) > 0,
           acceptable: d => d.success === true && !!d.result,
@@ -1296,6 +1377,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         const { result } = data;
+        // B-538: guarantee info (joker replaced the optimum / Maciag single-shop box). Both absent ⇒ every line below is as before.
+        const gApplied = data.guaranteeApplied ?? null;
+        const gBox = result.singleShopOption?.guarantee ?? null;
+        const gNote = gApplied ? guaranteeNote(gApplied.shopName) : gBox ? guaranteeNote(gBox.shopName) : '';
         let md = `## Cart Optimization (${country})\n\n`;
 
         if (data.eans_skipped?.length) {
@@ -1310,8 +1395,12 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
         }
 
         md += `### Optimal Shop Split\n`;
+        if (gApplied?.display.recommendation) md += `${gApplied.display.recommendation}\n`;
         for (const order of result.orders) {
-          md += `\n**${displayShopName(order.shopName)}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
+          const gHere = gApplied && order.shopName === gApplied.shopName ? gApplied : null;
+          md += gHere
+            ? `\n**${displayShopName(order.shopName)}** — ${guaranteeOrderLine(order, gHere)}\n`
+            : `\n**${displayShopName(order.shopName)}** — products ${formatEuro(order.subtotal)} + shipping ${formatEuro(order.shippingCost)} = ${formatEuro(order.total)}\n`;
           for (const item of order.products) {
             const itemLink = buildGoUrl(DISPLAY_NAME_TO_SLUG[order.shopName] ?? null, item.ean ?? null, 'optimize_cart', item.url);
             md += productEntry(
@@ -1321,8 +1410,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               itemLink,
               ` — **${formatEuro(item.price)}**`,
               `    `,
-            ) + `\n`;
+            ) + (gHere ? guaranteeClaimEntry(renderProfile, gHere, item.url, `    ↳ `, `       `) : ``) + `\n`;
           }
+          if (gHere) md += `${guaranteeFooter(gHere)}\n`;
         }
 
         // B-519: offers the main app left out of the cart for age (>24 h). Shape is exactly
@@ -1358,7 +1448,10 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           const deltaPercent = Math.round((sso.grandTotal - result.totalCost) / result.totalCost * 100);
           // B-175: pre-format the absolute € delta so the model never has to subtract.
           const deltaEuro = sso.grandTotal - result.totalCost;
-          md += `\n💡 Lieber alles aus einem Shop? ${displayShopName(sso.shop)} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
+          // B-538: when the box IS the Maciag guarantee candidate the API's own box text replaces the plain sentence.
+          md += gBox && gBox.display.boxText
+            ? `\n💡 Lieber alles aus einem Shop? ${gBox.display.boxText}\n`
+            : `\n💡 Lieber alles aus einem Shop? ${displayShopName(sso.shop)} – ${formatEuro(sso.grandTotal)} (${singleShopNur(deltaPercent)}+${formatEuro(deltaEuro)} / ca. +${formatPercent(deltaPercent)} ggü. Optimum, dafür ein Paket)\n`;
           const ssoSlug = DISPLAY_NAME_TO_SLUG[sso.shop] ?? null;
           for (const item of sso.items ?? []) {
             const itemLink = buildGoUrl(ssoSlug, item.ean ?? null, 'single_shop_item', item.url);
@@ -1369,8 +1462,9 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               itemLink,
               ` — **${formatEuro(item.price)}**`,
               `    `,
-            ) + `\n`;
+            ) + (gBox ? guaranteeClaimEntry(renderProfile, gBox, item.url, `    ↳ `, `       `) : ``) + `\n`;
           }
+          if (gBox) md += `${gBox.display.shippingAdjustmentLine ? `${gBox.display.shippingAdjustmentLine}\n` : ''}${guaranteeFooter(gBox)}\n`;
         }
 
         md += `\n**🛒 Direkt bestellen — klick auf die Links und leg die Produkte in den Warenkorb:**\n`;
@@ -1461,7 +1555,8 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 : undefined,
               ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
               disclosure: footer(renderProfile),
-              tell_user: PILOT_TELL_USER_OPTIMIZE_CART,
+              tell_user: PILOT_TELL_USER_OPTIMIZE_CART + (gNote ? ` ${gNote}` : ''),
+              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost) } : {}),
               savings: result.savings !== null
                 ? {
                     amount: round2(result.savings),
@@ -1484,11 +1579,13 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
               ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
+              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost) } : {}),
+              ...(gNote ? { guarantee_note: gNote } : {}),
               disclosure: footer(renderProfile),
             };
 
         return {
-          ...mcpText(md + "\n" + linksDirective(renderProfile) + DISCLOSURE_DIRECTIVE + footer(renderProfile)),
+          ...mcpText(md + (gNote ? `\n${gNote}\n` : "") + "\n" + linksDirective(renderProfile) + DISCLOSURE_DIRECTIVE + footer(renderProfile)),
           structuredContent,
         };
       } catch (err) {
@@ -2491,6 +2588,9 @@ interface EanResult {
   variant_colour?: string | null;
   // B-370: see ProductSearchResult.price_as_of above — identical, OPTIONAL, CONTENT-only.
   price_as_of?: string | null;
+  // B-538: set by the main app ONLY on ?guarantee=1 requests: Maciag true; BIKE24 / Bike-Discount true | false | null.
+  // Only === true is rendered.
+  price_guarantee?: boolean | null;
 }
 
 interface ShippingTier {
@@ -2523,6 +2623,43 @@ interface ShopOrderItem {
   ean?: string;
 }
 
+// B-538: price-guarantee info as the main app sends it (optimize-from-eans, display mode + request marker). The German
+// strings in `display` are built by the main app (copy.ts) and only PRINTED here; /go/ links are built here (src=mcp).
+interface GuaranteeClaimedLineApi {
+  ean: string;
+  productName: string;
+  guaranteeShopUrl: string;
+  qty: number;
+  claimedQty: number;
+  guaranteeOwnPrice: number;
+  matchedPrice: number;
+  competitorShop: string;
+  competitorPrice: number;
+  competitorShipping: number;
+  competitorShopSlug: string | null;
+}
+interface GuaranteeDisplayApi {
+  howTo: string;
+  notes: string[];
+  claimLines: { ean: string; guaranteeShopUrl: string; text: string; competitorShippingShown: number | null }[];
+  shippingAdjustmentLine: string | null;
+  footnote: string;
+  recommendation?: string;
+  boxText?: string;
+}
+interface GuaranteeGroupApi {
+  shop: string;
+  shopName: string;
+  claimedLines: GuaranteeClaimedLineApi[];
+  shippingAdjustment: number;
+  unadjustedGroupTotal: number;
+  display: GuaranteeDisplayApi;
+}
+interface GuaranteeAppliedApi extends GuaranteeGroupApi {
+  unadjustedTotal: number;
+  reason: string;
+}
+
 interface ShopOrder {
   shopName: string;
   products: ShopOrderItem[];
@@ -2547,6 +2684,8 @@ interface OptimizationResult {
     shipping: number;
     grandTotal: number;
     items?: { productName: string; price: number; url: string; ean?: string }[];
+    // B-538: present only when the Maciag price-guarantee candidate is what the box shows
+    guarantee?: GuaranteeGroupApi;
   } | null;
 }
 
@@ -2571,6 +2710,9 @@ interface OptimizeFromEansResult {
   // B-519: offers excluded by the main app's 24 h freshness gate (B-511 M3). Present only when
   // count > 0. shops = de-duplicated shop display names. No per-offer detail is sent.
   excluded_stale_offers?: { count: number; shops: string[] };
+  // B-538: set ONLY when the request carried guaranteeDisplay and the main app evaluated the guarantee.
+  // object = the joker REPLACED the optimum; null = it did not. Absent ⇒ render exactly as before.
+  guaranteeApplied?: GuaranteeAppliedApi | null;
 }
 
 interface ResolveResult {

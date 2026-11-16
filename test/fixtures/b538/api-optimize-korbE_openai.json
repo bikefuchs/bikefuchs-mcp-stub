@@ -1,0 +1,162 @@
+{
+ "success": true,
+ "country": "DE",
+ "eans_requested": [
+  "7630554949567",
+  "9010583262215",
+  "4717784043098",
+  "0196261014440"
+ ],
+ "eans_resolved": [
+  "7630554949567",
+  "9010583262215",
+  "4717784043098",
+  "0196261014440"
+ ],
+ "eans_skipped": [],
+ "not_available_eans": [],
+ "result": {
+  "orders": [
+   {
+    "shopName": "Maciag Offroad",
+    "products": [
+     {
+      "productName": "Korb E Artikel A",
+      "shopName": "Maciag Offroad",
+      "price": 19.95,
+      "url": "https://maciag.test/p/7630554949567",
+      "inStock": true,
+      "ean": "7630554949567"
+     },
+     {
+      "productName": "Korb E Artikel B",
+      "shopName": "Maciag Offroad",
+      "price": 34.95,
+      "url": "https://maciag.test/p/9010583262215",
+      "inStock": true,
+      "ean": "9010583262215"
+     },
+     {
+      "productName": "Korb E Artikel C",
+      "shopName": "Maciag Offroad",
+      "price": 24.95,
+      "url": "https://maciag.test/p/4717784043098",
+      "inStock": true,
+      "ean": "4717784043098"
+     },
+     {
+      "productName": "Korb E Artikel D",
+      "shopName": "Maciag Offroad",
+      "price": 57.99,
+      "url": "https://maciag.test/p/0196261014440",
+      "inStock": true,
+      "ean": "0196261014440"
+     }
+    ],
+    "subtotal": 137.84,
+    "shippingCost": 0,
+    "total": 140.79
+   }
+  ],
+  "totalCost": 140.79,
+  "totalShipping": 2.95,
+  "totalProducts": 4,
+  "savings": 2.9900000000000375,
+  "savingsPercent": 2.1,
+  "sourceShopBaseline": 143.78000000000003,
+  "sourceShopPartialAvailability": false,
+  "unavailableAtSourceCount": 0,
+  "sourceShopUncertainExclusion": false,
+  "recommendation": "optimized",
+  "baselineType": "cheapest_per_item",
+  "singleShopOption": null,
+  "reference": {
+   "mode": "A",
+   "label": "Alles bei einem Shop",
+   "total": 164.34,
+   "savings": 23.55000000000001,
+   "savingsPercent": 14.3
+  }
+ },
+ "guaranteeApplied": {
+  "shop": "maciag",
+  "shopName": "Maciag Offroad",
+  "claimedLines": [
+   {
+    "ean": "7630554949567",
+    "productName": "Korb E Artikel A",
+    "guaranteeShopUrl": "https://maciag.test/p/7630554949567",
+    "qty": 1,
+    "claimedQty": 1,
+    "guaranteeOwnPrice": 29.45,
+    "matchedPrice": 19.95,
+    "competitorShop": "Rose Bikes",
+    "competitorPrice": 19.95,
+    "competitorShipping": 2.95,
+    "variantHint": "",
+    "competitorShopSlug": "rose-bikes"
+   },
+   {
+    "ean": "9010583262215",
+    "productName": "Korb E Artikel B",
+    "guaranteeShopUrl": "https://maciag.test/p/9010583262215",
+    "qty": 1,
+    "claimedQty": 1,
+    "guaranteeOwnPrice": 44.95,
+    "matchedPrice": 34.95,
+    "competitorShop": "Rose Bikes",
+    "competitorPrice": 34.95,
+    "competitorShipping": 2.95,
+    "variantHint": "",
+    "competitorShopSlug": "rose-bikes"
+   },
+   {
+    "ean": "4717784043098",
+    "productName": "Korb E Artikel C",
+    "guaranteeShopUrl": "https://maciag.test/p/4717784043098",
+    "qty": 1,
+    "claimedQty": 1,
+    "guaranteeOwnPrice": 31.95,
+    "matchedPrice": 24.95,
+    "competitorShop": "Rose Bikes",
+    "competitorPrice": 24.95,
+    "competitorShipping": 2.95,
+    "variantHint": "",
+    "competitorShopSlug": "rose-bikes"
+   }
+  ],
+  "shippingAdjustment": 2.95,
+  "unadjustedGroupTotal": 164.34,
+  "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+  "notes": [],
+  "unadjustedTotal": 143.78000000000003,
+  "reason": "cheaper",
+  "display": {
+   "howTo": "So geht’s: Auf der Produktseite bei Maciag „Bestpreisgarantie“ wählen und den Link zum günstigeren Angebot eintragen – vor dem Kauf oder bis 5 Tage danach.",
+   "notes": [],
+   "claimLines": [
+    {
+     "ean": "7630554949567",
+     "guaranteeShopUrl": "https://maciag.test/p/7630554949567",
+     "text": "per Bestpreisgarantie anfragen · günstiger bei ROSE Bikes: 19,95 € + 2,95 € Versand (für alle 3 ROSE Bikes-Artikel)",
+     "competitorShippingShown": 2.95
+    },
+    {
+     "ean": "9010583262215",
+     "guaranteeShopUrl": "https://maciag.test/p/9010583262215",
+     "text": "per Bestpreisgarantie anfragen · günstiger bei ROSE Bikes: 34,95 €",
+     "competitorShippingShown": null
+    },
+    {
+     "ean": "4717784043098",
+     "guaranteeShopUrl": "https://maciag.test/p/4717784043098",
+     "text": "per Bestpreisgarantie anfragen · günstiger bei ROSE Bikes: 24,95 €",
+     "competitorShippingShown": null
+    }
+   ],
+   "shippingAdjustmentLine": "Versandausgleich Bestpreisgarantie +2,95 €",
+   "footnote": "* Erwarteter Maximalpreis, wenn Maciag Offroad deine Bestpreisanfrage annimmt. Der Shop prüft jede Anfrage selbst; ohne Anpassung kostet die Bestellung 164,34 €.",
+   "recommendation": "Am günstigsten: alles bei Maciag Offroad per Bestpreisgarantie – in 1 Paket."
+  }
+ }
+}

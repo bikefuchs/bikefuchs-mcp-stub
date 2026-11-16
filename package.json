@@ -13,7 +13,8 @@
     "test:b519": "node --import tsx --test test/b519-stale-price.test.ts test/b519-part2-refresh.test.ts",
     "test:b497-limited": "KV_REST_API_URL=https://fake-upstash.invalid KV_REST_API_TOKEN=fake-test-token node --import tsx --test test/b497-limited-response.test.ts",
     "test:b529": "node --import tsx --test test/b529-shop-states.test.ts",
-    "test:b530": "node --import tsx --test test/b530-display-names.test.ts"
+    "test:b530": "node --import tsx --test test/b530-display-names.test.ts",
+    "test:b538": "node --import tsx --test test/b538-guarantee-display.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",

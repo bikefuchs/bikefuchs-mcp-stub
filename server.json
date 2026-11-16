@@ -3,7 +3,7 @@
   "name": "com.bikefuchs/bikefuchs",
   "title": "Bikefuchs — Bike Parts Price Comparison",
   "description": "Bike parts price comparison (brake pads, chains, tyres) with cart optimizer incl. shipping, DE & AT",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "websiteUrl": "https://bikefuchs.com",
   "repository": {
     "url": "https://github.com/bikefuchs/bikefuchs-mcp-stub",

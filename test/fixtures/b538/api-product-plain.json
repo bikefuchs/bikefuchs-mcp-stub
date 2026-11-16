@@ -1,0 +1,65 @@
+{
+ "ean": "4055184043202",
+ "normalized_variants": [
+  "4055184043202"
+ ],
+ "results": [
+  {
+   "shop": "Rose Bikes",
+   "shop_id": "rosebikes",
+   "ean": "4055184043202",
+   "product_name": "Magura MDP 8 Beläge",
+   "brand": "Magura",
+   "price": 14.95,
+   "in_stock": true,
+   "purchase_url": "https://x.test/rosebikes",
+   "affiliate_link": null,
+   "product_url": "https://x.test/rosebikes",
+   "image_url": null
+  },
+  {
+   "shop": "Bike-Discount",
+   "shop_id": "bike-discount",
+   "ean": "4055184043202",
+   "product_name": "Magura MDP 8 Beläge",
+   "brand": "Magura",
+   "price": 14.99,
+   "in_stock": true,
+   "purchase_url": "https://x.test/bike-discount",
+   "affiliate_link": null,
+   "product_url": "https://x.test/bike-discount",
+   "image_url": null
+  },
+  {
+   "shop": "Maciag Offroad",
+   "shop_id": "maciag",
+   "ean": "4055184043202",
+   "product_name": "Magura MDP 8 Beläge",
+   "brand": "Magura",
+   "price": 21.95,
+   "in_stock": true,
+   "purchase_url": "https://x.test/maciag",
+   "affiliate_link": null,
+   "product_url": "https://x.test/maciag",
+   "image_url": null
+  }
+ ],
+ "total": 3,
+ "cheapest": {
+  "shop": "Rose Bikes",
+  "shop_id": "rosebikes",
+  "ean": "4055184043202",
+  "product_name": "Magura MDP 8 Beläge",
+  "brand": "Magura",
+  "price": 14.95,
+  "in_stock": true,
+  "purchase_url": "https://x.test/rosebikes",
+  "affiliate_link": null,
+  "product_url": "https://x.test/rosebikes",
+  "image_url": null
+ },
+ "scraping_pending": false,
+ "pending_shops": [],
+ "shop_states": [],
+ "not_found_shops": []
+}
