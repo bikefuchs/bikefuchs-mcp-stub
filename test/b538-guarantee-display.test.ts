@@ -200,6 +200,8 @@ for (const p of PROFILES) {
     assert.equal(tools.length, 7);
     const oc = tools.find(t => t.name === 'optimize_cart')!.outputSchema as Sc;
     assert.ok(oc.properties.guarantee && !oc.required.includes('guarantee'));
+    assert.deepEqual(oc.properties.guarantee.properties.shipping, { type: 'number' });
+    assert.ok(!oc.properties.guarantee.required.includes('shipping'), 'shipping is optional');
     assert.equal('guarantee_note' in oc.properties, p.name === 'claude');
     if (p.name === 'claude') assert.ok(!oc.required.includes('guarantee_note'));
     const gbp = tools.find(t => t.name === 'get_best_price')!.outputSchema as Sc;
@@ -207,6 +209,35 @@ for (const p of PROFILES) {
     assert.ok(!gbp.properties.prices.items.required.includes('price_guarantee'));
   });
 }
+// ── Phase 1b: total line shows shipping and Versandausgleich separately ────────────────────────────────────────────────
+const NB = /\u00a0/g;
+const totalLine = (t: string) => t.replace(NB, ' ').split('\n').find(l => l.startsWith('**Total cost:'))!;
+for (const p of PROFILES) {
+  test(`[1b] ${p.name}: Korb E / Korb D / negative adjustment — separate amounts, shipping + adjustment = totalShipping`, async () => {
+    const cases: Array<[string, string[], string, number, number]> = [
+      [p.name === 'openai' ? 'api-optimize-korbE_openai.json' : 'api-optimize-korbE.json', E, '(incl. 0,00 € shipping · Versandausgleich Bestpreisgarantie +2,95 €)', 0, 2.95],
+      ['api-optimize-korbD.json', D, '(incl. 4,95 € shipping · Versandausgleich Bestpreisgarantie +4,53 €)', 4.95, 4.53],
+      ['api-optimize-korbE_negadj.json', E, '(incl. 0,00 € shipping · Versandausgleich Bestpreisgarantie \u22121,50 €)', 0, -1.5],
+    ];
+    for (const [f, eans, want, ship, adj] of cases) {
+      const api = fx(f);
+      const r = await optimize(eans, api, p);
+      assert.equal(r.isError, false, f);
+      assert.ok(totalLine(r.text).includes(want), `${f}: ${totalLine(r.text)}`);
+      assert.ok(!totalLine(r.text).includes('incl. ' + (Math.round(api.result.totalShipping * 100) / 100).toFixed(2).replace('.', ',') + ' € shipping)'), 'no combined figure');
+      assert.equal(r.sc!.guarantee.shipping, ship);
+      assert.equal(r.sc!.guarantee.shipping_adjustment, adj);
+      assert.equal(Math.round((r.sc!.guarantee.shipping + r.sc!.guarantee.shipping_adjustment) * 100), Math.round(api.result.totalShipping * 100), 'shipping + adjustment = totalShipping to the cent');
+    }
+  });
+  test(`[1b] ${p.name}: adjustment 0 / no guarantee ⇒ old combined wording`, async () => {
+    const api = fx('api-optimize-korbE.json');
+    api.guaranteeApplied.shippingAdjustment = 0;
+    const r = await optimize(E, api, p);
+    assert.ok(totalLine(r.text).includes(`(incl. 2,95 € shipping)`), totalLine(r.text));
+  });
+}
+
 test('[version] serverInfo and server.json say 2.6.0', async () => {
   const { SERVER_INFO } = await import('../app/lib/mcpServer');
   assert.equal(SERVER_INFO.version, '2.6.0');

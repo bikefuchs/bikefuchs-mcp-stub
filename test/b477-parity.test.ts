@@ -249,8 +249,8 @@ const TOOLS_LIST_ID1: Case = { body: { jsonrpc: '2.0', id: 1, method: 'tools/lis
 // get_best_price prices[] gains OPTIONAL `price_guarantee`. Verified by diff against f2787be5: no name, description, input
 // schema, annotation or required-field change; version 2.5.1 → 2.6.0 (serverInfo, server.json).
 const TOOLS_LIST_FINGERPRINTS: Record<string, { bytes: number; sha256: string }> = {
-  '/mcp': { bytes: 16142, sha256: 'b185a4519b8f42070017754523468e7a0d151222d7f119cae7118ac18f40865d' },
-  '/mcp/openai': { bytes: 17934, sha256: '8ffa16a2f774cc9ed72a07fd1855f67e5baeba2281b74d7f48177df7ddcfe418' },
+  '/mcp': { bytes: 16171, sha256: '52e86e1f17738410645c2a997df3649d4f5d2dc4a83e2fb5d48668d40d8a4171' },
+  '/mcp/openai': { bytes: 17963, sha256: 'e0e129fc33f37f2cb7128f6f4b81fe85710ee5bc72a52fd0c8d79e2254305c76' },
 };
 
 for (const ch of CHANNELS) {

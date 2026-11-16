@@ -411,12 +411,13 @@ function guaranteeFooter(g: GuaranteeGroupApi): string {
 }
 
 /** structuredContent `guarantee` object (both profiles). */
-function guaranteeStructured(g: GuaranteeAppliedApi, totalCost: number) {
+function guaranteeStructured(g: GuaranteeAppliedApi, totalCost: number, shipping: number) {
   return {
     shop: displayShopName(g.shopName),
     reason: g.reason,
     total: round2(totalCost),
     unadjusted_total: round2(g.unadjustedTotal),
+    shipping: round2(shipping),
     shipping_adjustment: round2(g.shippingAdjustment),
     lines: g.display.claimLines.map(c => {
       const l = g.claimedLines.find(x => x.guaranteeShopUrl === c.guaranteeShopUrl);
@@ -1271,6 +1272,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           reason: z.string(),
           total: z.number(),
           unadjusted_total: z.number(),
+          shipping: z.number().optional(),
           shipping_adjustment: z.number(),
           lines: z.array(z.object({
             ean: z.string(),
@@ -1432,7 +1434,14 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
           ? "vs. your selected shops"
           : "vs. buying each item at its cheapest individual shop";
 
-        md += `\n**Total cost: ${formatEuro(result.totalCost)}** (incl. ${formatEuro(result.totalShipping)} shipping)`;
+        // B-538 Phase 1b: with an applied guarantee whose adjustment is not 0 (in cents), show the
+        // orders' own shipping and the Versandausgleich as two separate amounts.
+        const ordersShipping = result.orders.reduce((a: number, o: { shippingCost: number }) => a + o.shippingCost, 0);
+        const adjCents = gApplied ? Math.round(gApplied.shippingAdjustment * 100) : 0;
+        const shippingPart = adjCents !== 0
+          ? `incl. ${formatEuro(ordersShipping)} shipping · Versandausgleich Bestpreisgarantie ${adjCents > 0 ? '+' : '\u2212'}${formatEuro(Math.abs(adjCents) / 100)}`
+          : `incl. ${formatEuro(result.totalShipping)} shipping`;
+        md += `\n**Total cost: ${formatEuro(result.totalCost)}** (${shippingPart})`;
         if (result.savings !== null && result.savings > 0) {
           md += ` *(saves ${formatEuro(result.savings)}${result.savingsPercent !== null ? ` / ${formatPercent(result.savingsPercent)}` : ""} ${baselineLabel})*`;
         }
@@ -1556,7 +1565,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
               ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
               disclosure: footer(renderProfile),
               tell_user: PILOT_TELL_USER_OPTIMIZE_CART + (gNote ? ` ${gNote}` : ''),
-              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost) } : {}),
+              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost, ordersShipping) } : {}),
               savings: result.savings !== null
                 ? {
                     amount: round2(result.savings),
@@ -1579,7 +1588,7 @@ function createServer({ feedOnly, renderProfile }: { feedOnly: boolean; renderPr
                 ? { eans_to_refresh: data.stale_cache_warning.eans_to_refresh, suggestion: data.stale_cache_warning.suggestion }
                 : undefined,
               ...(excludedStale ? { excluded_stale_offers: { ...excludedStale, shops: excludedStale.shops.map(n => displayShopName(n)) } } : {}),
-              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost) } : {}),
+              ...(gApplied ? { guarantee: guaranteeStructured(gApplied, result.totalCost, ordersShipping) } : {}),
               ...(gNote ? { guarantee_note: gNote } : {}),
               disclosure: footer(renderProfile),
             };
